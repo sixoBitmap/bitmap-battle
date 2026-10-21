@@ -39,6 +39,9 @@ important happens in your battle: a new block, your coins arriving, being outbid
 **Leave** at any time before the block. A key-path spend sends the deposit back to your payment address. It also
 cancels a claim that is still waiting, so nothing is inscribed.
 
+**Past battles** are in the hall of fame. Tap a champion to see every claim in that block, the fee each one paid,
+and a mempool link for each.
+
 **Older bitmaps nobody owns** are listed in the hall of fame (the Fame tab on a phone). One tap on **MINT NOW**
 deposits, and the claim goes out by itself as soon as the deposit lands. When someone else claims one of them, the
 arena shows an **open fight** link, and the battle works like any other.
@@ -126,8 +129,11 @@ someone is tapping around the page.
 The arena has its own soundtrack, played live by the browser (no audio files): war drums, a dark drone, a
 plucked lyre over D minor, B flat, C and A, and a Roman horn call. It follows the battle. It is quiet while
 you watch, the drums join when fighters arrive, the horn sounds when you mint or lead, and it gets more urgent
-when you are outbid. It goes silent for the Vesuvius celebration. The sound button cycles through music and
-sounds, sounds only, and silent. Browsers allow sound only after a tap, so the music starts with the first tap.
+when you are outbid. It goes silent for the Vesuvius celebration. Browsers allow sound only after a tap, so the
+music starts with the first tap.
+
+One button in the top bar sets how the app gets your attention, and its icon shows the mode: 🎶 music and sounds,
+🔔 battle alerts only (no music), or 🔇 silent.
 
 ## Put it on your phone
 
