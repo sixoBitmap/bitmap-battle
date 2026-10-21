@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react';
-import { api } from '../lib/api.ts';
+import { api, type PublicState } from '../lib/api.ts';
 import { num, who } from '../lib/format.ts';
 import { live, onBlock } from '../lib/live.ts';
 import { BattleLog } from './BattleLog.tsx';
+
+// Who won a recent block's bitmap: its valid claim in that block, or in a later one when it was minted late.
+export const champion = (state: PublicState, height: number) =>
+  state.results.flatMap((r) => r.claims).find((c) => c.n === height && c.valid) ?? null;
 
 // The hall of fame: who won the last blocks, and the older bitmaps nobody owns yet, open for a fight.
 export function Fame() {
@@ -47,8 +51,8 @@ export function Fame() {
 
         <h3 className="list-title">Last champions</h3>
         {state.results.map((r) => {
-          const winner = r.claims.find((c) => c.n === r.height && c.valid);
-          const fights = r.claims.filter((c) => c.n === r.height).length;
+          const winner = champion(state, r.height);
+          const fights = state.results.flatMap((x) => x.claims).filter((c) => c.n === r.height).length;
           const w = winner ? who(winner.key) : null;
           return w ? (
             <button key={r.height} type="button" className="row champion" onClick={() => setLog(r.height)}>

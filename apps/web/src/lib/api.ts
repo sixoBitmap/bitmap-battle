@@ -43,6 +43,7 @@ export type TxInfo = {
 export type BattleClaim = {
   txid: string;
   inscription: string;
+  block: number;
   position: number;
   valid: boolean | null;
   key: string | null;

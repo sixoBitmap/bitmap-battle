@@ -3,7 +3,7 @@ import { Backdrop } from './components/Backdrop.tsx';
 import { Battles } from './components/Battles.tsx';
 import { BattleLog } from './components/BattleLog.tsx';
 import { Cube } from './components/Cube.tsx';
-import { Fame } from './components/Fame.tsx';
+import { champion, Fame } from './components/Fame.tsx';
 import { DevPanel } from './components/DevPanel.tsx';
 import { Rules } from './components/How.tsx';
 import { RiskGate } from './components/RiskGate.tsx';
@@ -67,8 +67,8 @@ function HallOfFame() {
     <div className="side-box">
       <h3>Hall of fame</h3>
       {state.results.slice(0, 6).map((r) => {
-        const winner = r.claims.find((c) => c.n === r.height && c.valid);
-        const fights = r.claims.filter((c) => c.n === r.height).length;
+        const winner = champion(state, r.height);
+        const fights = state.results.flatMap((x) => x.claims).filter((c) => c.n === r.height).length;
         return winner ? (
           <button key={r.height} type="button" className="fame" onClick={() => setLog(r.height)}>
             <b>{num(r.height)}</b>

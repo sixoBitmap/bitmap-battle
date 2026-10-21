@@ -56,6 +56,7 @@ class HttpError extends Error {
 type BattleClaim = {
   txid: string;
   inscription: string;
+  block: number;
   position: number;
   valid: boolean | null;
   key: string | null;
@@ -152,25 +153,32 @@ export function serve(cfg: Config, deps: Deps) {
     };
   }
 
-  // The claims for a block's own bitmap in block order, with what each one paid: read from the node once per block.
-  const logs = new Map<string, Promise<BattleClaim[]>>();
-  function battleLog(block: BlockInfo): Promise<BattleClaim[]> {
-    let found = logs.get(block.hash);
+  // What a mined transaction paid never changes, so each one is read from the node once.
+  const fees = new Map<string, Promise<{ fee: number | null; vsize: number }>>();
+  function paid(txid: string, block: BlockInfo) {
+    const id = `${block.hash}:${txid}`;
+    let found = fees.get(id);
     if (!found) {
-      const claims = block.claims.filter((c) => c.n === block.height).slice(0, 50);
-      found = Promise.all(
-        claims.map(async (c) => {
-          const tx = await rpc.call<{ vsize: number; fee?: number }>('getrawtransaction', c.txid, 2, block.hash);
-          const fee = tx.fee === undefined ? null : sats(tx.fee);
-          const rate = fee === null ? null : Math.round((fee / tx.vsize) * 100) / 100;
-          return { txid: c.txid, inscription: c.inscription, position: c.position, valid: c.valid, key: c.key?.slice(0, 8) ?? null, fee, vsize: tx.vsize, rate };
-        }),
-      );
-      logs.set(block.hash, found);
-      found.catch(() => logs.delete(block.hash));
-      if (logs.size > 40) logs.delete(logs.keys().next().value!);
+      found = rpc
+        .call<{ vsize: number; fee?: number }>('getrawtransaction', txid, 2, block.hash)
+        .then((tx) => ({ fee: tx.fee === undefined ? null : sats(tx.fee), vsize: tx.vsize }));
+      fees.set(id, found);
+      found.catch(() => fees.delete(id));
+      if (fees.size > 2000) fees.delete(fees.keys().next().value!);
     }
     return found;
+  }
+
+  // Every claim for bitmap n in the recent blocks from n on, in chain order, with what each one paid.
+  function battleLog(n: number): Promise<BattleClaim[]> {
+    const claims = watcher.blocks.filter((b) => b.height >= n).flatMap((b) => b.claims.filter((c) => c.n === n).map((c) => ({ c, b })));
+    return Promise.all(
+      claims.slice(0, 50).map(async ({ c, b }) => {
+        const { fee, vsize } = await paid(c.txid, b);
+        const rate = fee === null ? null : Math.round((fee / vsize) * 100) / 100;
+        return { txid: c.txid, inscription: c.inscription, block: b.height, position: c.position, valid: c.valid, key: c.key?.slice(0, 8) ?? null, fee, vsize, rate };
+      }),
+    );
   }
 
   async function outspend(txid: string, vout: number) {
@@ -218,8 +226,9 @@ export function serve(cfg: Config, deps: Deps) {
       return block ? send(res, 200, { height: block.height, sizes: block.sizes }) : send(res, 404, { error: 'not a recent block' });
     }
     if (method === 'GET' && (m = path.match(/^\/api\/block\/(\d+)\/battle$/))) {
-      const block = watcher.blocks.find((b) => b.height === Number(m![1]));
-      return block ? send(res, 200, { height: block.height, claims: await battleLog(block) }) : send(res, 404, { error: 'not a recent block' });
+      const n = Number(m[1]);
+      if (!watcher.blocks.some((b) => b.height === n)) return send(res, 404, { error: 'not a recent block' });
+      return send(res, 200, { height: n, claims: await battleLog(n) });
     }
     if (method === 'POST' && path.startsWith('/api/seat')) {
       const b = await body(req);
