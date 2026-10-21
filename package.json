@@ -1,0 +1,35 @@
+{
+  "name": "bitmap-battle",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mobile mint battles for bitmaps: players sign and broadcast their own claims, the server only watches the mempool.",
+  "license": "MIT",
+  "type": "module",
+  "workspaces": [
+    "packages/core",
+    "apps/server",
+    "apps/web"
+  ],
+  "scripts": {
+    "build": "npm run build -w apps/web",
+    "start": "npm run start -w apps/server --",
+    "dev:web": "npm run dev -w apps/web",
+    "regtest": "node scripts/regtest.mjs",
+    "e2e": "tsx scripts/e2e-regtest.ts",
+    "icons": "node scripts/make-icons.mjs",
+    "test": "npm test -w packages/core",
+    "typecheck": "tsc -p packages/core && tsc -p apps/server && tsc -p apps/web",
+    "online": "node scripts/online.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "qrcode": "1.5.4"
+  }
+}

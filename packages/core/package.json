@@ -1,0 +1,16 @@
+{
+  "name": "@bitmap-battle/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@noble/curves": "2.0.1",
+    "@noble/hashes": "2.0.1",
+    "@scure/base": "2.0.0",
+    "@scure/btc-signer": "2.0.1"
+  }
+}

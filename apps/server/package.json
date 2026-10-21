@@ -1,0 +1,19 @@
+{
+  "name": "@bitmap-battle/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning --import tsx src/main.ts"
+  },
+  "dependencies": {
+    "@bitmap-battle/core": "0.1.0",
+    "qrcode": "1.5.4",
+    "web-push": "3.6.7",
+    "ws": "8.18.3"
+  },
+  "devDependencies": {
+    "@types/web-push": "3.6.4",
+    "@types/ws": "8.18.1"
+  }
+}
