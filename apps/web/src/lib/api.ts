@@ -40,6 +40,16 @@ export type TxInfo = {
   height: number | null;
   outputs: { n: number; value: number; script: string; address: string | null }[];
 };
+export type BattleClaim = {
+  txid: string;
+  inscription: string;
+  position: number;
+  valid: boolean | null;
+  key: string | null;
+  fee: number | null;
+  vsize: number;
+  rate: number | null;
+};
 export type Outspend = { unspent: boolean; spender: string | null; confirmations: number | null };
 export type BitmapInfo = { n: number; claimed: { inscription: string; height: number } | null | 'unknown'; scannedTo: number };
 
@@ -62,6 +72,7 @@ export const api = {
   outspend: (txid: string, vout: number) => get<Outspend>(`/api/outspend/${txid}/${vout}`),
   bitmap: (n: number) => get<BitmapInfo>(`/api/bitmap/${n}`),
   unclaimed: () => get<{ numbers: number[] }>('/api/unclaimed').then((r) => r.numbers),
+  battle: (height: number) => get<{ claims: BattleClaim[] }>(`/api/block/${height}/battle`).then((r) => r.claims),
   sizes: (height: number) => get<{ sizes: number[] }>(`/api/block/${height}/sizes`).then((r) => r.sizes),
   seat: (n: number, player: string) => post<{ ok: boolean }>('/api/seat', { n, player }),
   release: (n: number, player: string) => post<{ ok: boolean }>('/api/seat/release', { n, player }).catch(() => null),

@@ -53,6 +53,17 @@ class HttpError extends Error {
   }
 }
 
+type BattleClaim = {
+  txid: string;
+  inscription: string;
+  position: number;
+  valid: boolean | null;
+  key: string | null;
+  fee: number | null;
+  vsize: number;
+  rate: number | null;
+};
+
 type Deps = { rpc: Rpc; watcher: Watcher; bitmaps: Bitmaps; seats: Seats; push: Push; dev: Dev | null; state: () => PublicState };
 
 async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
@@ -141,6 +152,27 @@ export function serve(cfg: Config, deps: Deps) {
     };
   }
 
+  // The claims for a block's own bitmap in block order, with what each one paid: read from the node once per block.
+  const logs = new Map<string, Promise<BattleClaim[]>>();
+  function battleLog(block: BlockInfo): Promise<BattleClaim[]> {
+    let found = logs.get(block.hash);
+    if (!found) {
+      const claims = block.claims.filter((c) => c.n === block.height).slice(0, 50);
+      found = Promise.all(
+        claims.map(async (c) => {
+          const tx = await rpc.call<{ vsize: number; fee?: number }>('getrawtransaction', c.txid, 2, block.hash);
+          const fee = tx.fee === undefined ? null : sats(tx.fee);
+          const rate = fee === null ? null : Math.round((fee / tx.vsize) * 100) / 100;
+          return { txid: c.txid, inscription: c.inscription, position: c.position, valid: c.valid, key: c.key?.slice(0, 8) ?? null, fee, vsize: tx.vsize, rate };
+        }),
+      );
+      logs.set(block.hash, found);
+      found.catch(() => logs.delete(block.hash));
+      if (logs.size > 40) logs.delete(logs.keys().next().value!);
+    }
+    return found;
+  }
+
   async function outspend(txid: string, vout: number) {
     const out = await rpc.call<{ confirmations: number } | null>('gettxout', txid, vout, true);
     if (out) return { unspent: true, spender: null, confirmations: out.confirmations };
@@ -184,6 +216,10 @@ export function serve(cfg: Config, deps: Deps) {
     if (method === 'GET' && (m = path.match(/^\/api\/block\/(\d+)\/sizes$/))) {
       const block = watcher.blocks.find((b) => b.height === Number(m![1]));
       return block ? send(res, 200, { height: block.height, sizes: block.sizes }) : send(res, 404, { error: 'not a recent block' });
+    }
+    if (method === 'GET' && (m = path.match(/^\/api\/block\/(\d+)\/battle$/))) {
+      const block = watcher.blocks.find((b) => b.height === Number(m![1]));
+      return block ? send(res, 200, { height: block.height, claims: await battleLog(block) }) : send(res, 404, { error: 'not a recent block' });
     }
     if (method === 'POST' && path.startsWith('/api/seat')) {
       const b = await body(req);

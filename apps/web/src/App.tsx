@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { Backdrop } from './components/Backdrop.tsx';
 import { Battles } from './components/Battles.tsx';
+import { BattleLog } from './components/BattleLog.tsx';
 import { Cube } from './components/Cube.tsx';
 import { Fame } from './components/Fame.tsx';
 import { DevPanel } from './components/DevPanel.tsx';
@@ -14,32 +15,37 @@ import { live, onBlock } from './lib/live.ts';
 import { moment } from './lib/mood.ts';
 import { disablePush, enablePush, pushOn, pushSupported } from './lib/push.ts';
 import { go, useRoute } from './lib/route.ts';
-import { type SoundMode, soundMode, sfx } from './lib/sound.ts';
+import { soundMode, sfx } from './lib/sound.ts';
 import { fail, toast, toasts } from './lib/toast.ts';
 
 const Win = lazy(() => import('./components/Win.tsx'));
 
-const NEXT_MODE: Record<SoundMode, SoundMode> = { all: 'effects', effects: 'off', off: 'all' };
-const MODE_ICON: Record<SoundMode, string> = { all: '🎶', effects: '🔊', off: '🔇' };
-const MODE_LABEL: Record<SoundMode, string> = { all: 'Music and sounds on', effects: 'Sounds only', off: 'Silent' };
+type Mode = 'music' | 'alerts' | 'off';
+const NEXT: Record<Mode, Mode> = { music: 'alerts', alerts: 'off', off: 'music' };
+const ICON: Record<Mode, string> = { music: '🎶', alerts: '🔔', off: '🔇' };
+const LABEL: Record<Mode, string> = { music: 'Music on, no battle alerts', alerts: 'Battle alerts on, no music', off: 'Silent: no music, no alerts' };
 
-function Bell({ vapidKey }: { vapidKey: string }) {
-  const on = pushOn.use();
+// One button for what the app may do to get your attention: play music, send battle alerts, or stay quiet.
+function ModeButton({ vapidKey }: { vapidKey: string }) {
+  const alerts = pushOn.use();
+  const sound = soundMode.use();
   const [busy, setBusy] = useState(false);
-  const flip = async () => {
-    if (!pushSupported()) {
-      toast(/iPhone|iPad/.test(navigator.userAgent) ? 'Battle alerts: add the app to your home screen first.' : 'Battle alerts need the app over https.');
-      return;
-    }
+  const mode: Mode = alerts ? 'alerts' : sound === 'off' ? 'off' : 'music';
+  const change = async () => {
+    const next = NEXT[mode];
     setBusy(true);
     try {
-      if (on) {
-        await disablePush();
-        toast('Battle alerts are off');
-      } else {
+      if (next === 'music') soundMode.set('all');
+      if (next === 'alerts') {
+        soundMode.set('off');
+        if (!pushSupported()) {
+          toast(/iPhone|iPad/.test(navigator.userAgent) ? 'Battle alerts: add the app to your home screen first.' : 'Battle alerts need the app over https.');
+          return;
+        }
         await enablePush(vapidKey);
-        toast('You will hear about new battles', 'good');
       }
+      if (next === 'off') await disablePush();
+      toast(LABEL[next], next === 'off' ? undefined : 'good');
     } catch (e) {
       fail(e);
     } finally {
@@ -47,14 +53,15 @@ function Bell({ vapidKey }: { vapidKey: string }) {
     }
   };
   return (
-    <button className={`icon ${on ? 'lit' : ''}`} onClick={flip} disabled={busy} aria-label={on ? 'Battle alerts on' : 'Turn on battle alerts'}>
-      {on ? '🔔' : '🔕'}
+    <button className={`icon ${mode === 'off' ? '' : 'lit'}`} onClick={change} disabled={busy} aria-label={`${LABEL[mode]}. Tap to change`}>
+      {ICON[mode]}
     </button>
   );
 }
 
 function HallOfFame() {
   const { state } = live.use();
+  const [log, setLog] = useState<number | null>(null);
   if (!state) return null;
   return (
     <div className="side-box">
@@ -63,11 +70,11 @@ function HallOfFame() {
         const winner = r.claims.find((c) => c.n === r.height && c.valid);
         const fights = r.claims.filter((c) => c.n === r.height).length;
         return winner ? (
-          <div key={r.height} className="fame">
+          <button key={r.height} type="button" className="fame" onClick={() => setLog(r.height)}>
             <b>{num(r.height)}</b>
             <span>{`${who(winner.key).icon} ${who(winner.key).name}`}</span>
-            {fights > 1 && <em>⚔ {fights}</em>}
-          </div>
+            <em>{fights > 1 ? `⚔ ${fights}` : '📜'}</em>
+          </button>
         ) : (
           <a key={r.height} className="fame" href={`#/table/${r.height}`}>
             <b>{num(r.height)}</b>
@@ -76,6 +83,7 @@ function HallOfFame() {
           </a>
         );
       })}
+      {log !== null && <BattleLog height={log} onClose={() => setLog(null)} />}
     </div>
   );
 }
@@ -87,7 +95,6 @@ export function App() {
   const { config, state, connected } = live.use();
   const all = battles.use();
   const active = all.find((b) => b.outcome === null) ?? null;
-  const mode = soundMode.use();
   const [demo, setDemo] = useState(true);
   const ready = state && config && state.tip.height >= 0;
   const purse = route.page === 'me';
@@ -123,18 +130,7 @@ export function App() {
           <span className={`block-no ${connected ? 'on' : ''}`} title={connected ? 'Live' : 'Reconnecting'}>
             {state && state.tip.height >= 0 ? `#${num(state.tip.height)}` : '…'}
           </span>
-          {config && <Bell vapidKey={config.vapidKey} />}
-          <button
-            className="icon"
-            onClick={() => {
-              const next = NEXT_MODE[mode];
-              soundMode.set(next);
-              toast(MODE_LABEL[next]);
-            }}
-            aria-label={`${MODE_LABEL[mode]}. Tap to change`}
-          >
-            {MODE_ICON[mode]}
-          </button>
+          {config && <ModeButton vapidKey={config.vapidKey} />}
           <WalletButton />
         </div>
       </header>

@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { type Battle, backup, battles, quoteTakeback, recoverable, remove, restore, takeBack } from '../lib/battles.ts';
-import { explorer, num, rate, sats } from '../lib/format.ts';
+import { num, rate, sats } from '../lib/format.ts';
 import { live } from '../lib/live.ts';
 import { fail, toast } from '../lib/toast.ts';
 import { addressKind, disconnect, wallet } from '../lib/wallet.ts';
-import { Addr } from './Addr.tsx';
+import { Addr, Tx } from './Addr.tsx';
 
 function download(b: Battle) {
   const url = URL.createObjectURL(new Blob([backup(b)], { type: 'application/json' }));
@@ -21,24 +21,6 @@ const LABEL: Record<string, string> = {
   left: '👋 Left',
 };
 
-// One transaction of a battle: a mempool link on mainnet, otherwise the cube reads the id out.
-function Tx({ name, id, kind = 'tx', extra }: { name: string; id: string; kind?: 'tx' | 'inscription'; extra?: string }) {
-  const { config } = live.use();
-  const link = config ? explorer(config.network, kind, id) : '';
-  return (
-    <div className="tx">
-      <span>{name}</span>
-      {extra && <em>{extra}</em>}
-      {link ? (
-        <a className="link" href={link} target="_blank" rel="noopener">
-          {id.slice(0, 8)}… ↗
-        </a>
-      ) : (
-        <Addr value={id} head={6} tail={4} label={name} />
-      )}
-    </div>
-  );
-}
 
 function Row({ b }: { b: Battle }) {
   const { state, config } = live.use();

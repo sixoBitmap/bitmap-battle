@@ -68,7 +68,7 @@ export class Hopper {
 
   // While someone taps around the page the cube sits still.
   private rest = () => {
-    if (!this.paused && !this.flying) this.schedule(4000 + Math.random() * 2000);
+    if (!this.paused && !this.flying) this.schedule(12000 + Math.random() * 6000);
   };
 
   private choices(): Spot[] {
@@ -107,7 +107,7 @@ export class Hopper {
     this.draw(1, 1, 0);
   };
 
-  private schedule(ms = 1400 + Math.random() * 2600): void {
+  private schedule(ms = 8000 + Math.random() * 8000): void {
     clearTimeout(this.timer);
     if (!this.stopped) this.timer = window.setTimeout(() => this.hop(), ms);
   }

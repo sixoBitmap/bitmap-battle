@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api.ts';
-import { explorer, num, who } from '../lib/format.ts';
+import { num, who } from '../lib/format.ts';
 import { live, onBlock } from '../lib/live.ts';
+import { BattleLog } from './BattleLog.tsx';
 
 // The hall of fame: who won the last blocks, and the older bitmaps nobody owns yet, open for a fight.
 export function Fame() {
   const { state, config } = live.use();
   const [free, setFree] = useState<number[] | null>(null);
+  const [log, setLog] = useState<number | null>(null);
 
   useEffect(() => {
     const read = () => api.unclaimed().then(setFree, () => setFree([]));
@@ -47,22 +49,23 @@ export function Fame() {
         {state.results.map((r) => {
           const winner = r.claims.find((c) => c.n === r.height && c.valid);
           const fights = r.claims.filter((c) => c.n === r.height).length;
-          const link = winner ? explorer(config.network, 'inscription', winner.inscription) : '';
           const w = winner ? who(winner.key) : null;
-          return (
-            <div key={r.height} className="row champion">
+          return w ? (
+            <button key={r.height} type="button" className="row champion" onClick={() => setLog(r.height)}>
               <b>{num(r.height)}</b>
-              <span>{w ? `${w.icon} ${w.name}` : 'unclaimed'}</span>
-              {fights > 1 && <em>⚔ {fights}</em>}
-              {link && (
-                <a className="link" href={link} target="_blank" rel="noopener">
-                  ↗
-                </a>
-              )}
-            </div>
+              <span>{`${w.icon} ${w.name}`}</span>
+              <em>{fights > 1 ? `⚔ ${fights}` : '📜'}</em>
+            </button>
+          ) : (
+            <a key={r.height} className="row champion" href={`#/table/${r.height}`}>
+              <b>{num(r.height)}</b>
+              <span>unclaimed</span>
+              <em>MINT ⚡</em>
+            </a>
           );
         })}
       </div>
+      {log !== null && <BattleLog height={log} onClose={() => setLog(null)} />}
     </div>
   );
 }
