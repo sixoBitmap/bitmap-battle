@@ -63,10 +63,11 @@ export const BOT_KEYS = new Set(['7dd6a85f']);
 // address its bitmaps go to, since it signs every claim with a new key.
 export type Claimer = { key: string | null; owner?: string | null; ghost?: boolean };
 
+// The icon says what kind of claimer it is; the name only tells them apart.
 export function who(c: Claimer): { icon: string; name: string } {
-  if (c.key && BOT_KEYS.has(c.key)) return { icon: '🤖', name: `Bot ${c.key}` };
-  if (c.ghost) return { icon: '👻', name: `Ghost ${c.owner ? short(c.owner, 6, 4) : (c.key ?? '')}`.trim() };
-  return { icon: '👤', name: c.key ? `Minter ${c.key}` : 'Minter' };
+  if (c.key && BOT_KEYS.has(c.key)) return { icon: '🤖', name: c.key };
+  if (c.ghost) return { icon: '👻', name: c.owner ? short(c.owner, 6, 4) : (c.key ?? '') };
+  return { icon: '👤', name: c.key ?? (c.owner ? short(c.owner, 6, 4) : '') };
 }
 
 // A fee rate that can run into the thousands: 960, 12k, 1.2M.
