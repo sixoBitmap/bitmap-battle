@@ -53,7 +53,7 @@ export function Fame() {
         {state.results.map((r) => {
           const winner = champion(state, r.height);
           const fights = state.results.flatMap((x) => x.claims).filter((c) => c.n === r.height).length;
-          const w = winner ? who(winner.key) : null;
+          const w = winner ? who(winner) : null;
           return w ? (
             <button key={r.height} type="button" className="row champion" onClick={() => setLog(r.height)}>
               <b>{num(r.height)}</b>

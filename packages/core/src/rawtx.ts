@@ -1,6 +1,9 @@
-import { concatBytes, dsha256, toHex } from './bytes.ts';
+import { concatBytes, dsha256, latin1, toHex } from './bytes.ts';
+
+export type TxOut = { value: number; script: Uint8Array };
 
 export type RawTx = {
+  outputs: TxOut[];
   witnesses: Uint8Array[][];
   size: number;
   weight: number;
@@ -30,9 +33,13 @@ export function readTx(b: Uint8Array, start: number): [RawTx, number] {
     i += len + 4;
   }
   [outputs, i] = varint(b, i);
+  const outs: TxOut[] = [];
   for (let k = 0; k < outputs; k++) {
+    if (i + 8 > b.length) throw new Error('truncated transaction');
+    const value = Number(new DataView(b.buffer, b.byteOffset + i, 8).getBigUint64(0, true));
     i += 8;
     [len, i] = varint(b, i);
+    outs.push({ value, script: b.subarray(i, i + len) });
     i += len;
   }
   const bodyEnd = i;
@@ -60,13 +67,24 @@ export function readTx(b: Uint8Array, start: number): [RawTx, number] {
     (id ??= toHex(
       dsha256(concatBytes(b.subarray(start, start + 4), b.subarray(bodyStart, bodyEnd), b.subarray(lockStart, i))).reverse(),
     ));
-  return [{ witnesses, size, weight: baseSize * 3 + size, txid }, i];
+  return [{ outputs: outs, witnesses, size, weight: baseSize * 3 + size, txid }, i];
 }
 
 export function parseTx(raw: Uint8Array): RawTx {
   const [tx, end] = readTx(raw, 0);
   if (end !== raw.length) throw new Error('trailing bytes after transaction');
   return tx;
+}
+
+// The text a block's miner wrote into its coinbase input, where pools put their name.
+export function coinbaseText(block: Uint8Array): string {
+  let [, i] = varint(block, 80);
+  i += 4;
+  if (block[i] === 0 && block[i + 1] === 1) i += 2;
+  [, i] = varint(block, i);
+  i += 36;
+  const [len, at] = varint(block, i);
+  return latin1(block.subarray(at, at + len));
 }
 
 export function* blockTxs(block: Uint8Array): Generator<RawTx> {

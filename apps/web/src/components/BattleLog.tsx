@@ -26,16 +26,21 @@ export function BattleLog({ height, onClose }: { height: number; onClose: () => 
           <>
             <p className="muted">
               {claims.length} claim{claims.length === 1 ? '' : 's'} for {num(height)}. The first one mined wins.
+              {claims.find((c) => c.block === height)?.pool && ` Block ${num(height)} was mined by ${claims.find((c) => c.block === height)!.pool}.`}
             </p>
             <div className="log">
               {claims.map((c, i) => {
-                const w = who(c.key);
+                const w = who(c);
                 return (
                   <Tx
                     key={c.txid}
                     name={`${i + 1}. ${c.valid ? '👑 ' : ''}${w.icon} ${w.name}`}
                     id={c.txid}
-                    extra={[c.fee === null ? '' : `${sats(c.fee)} · ${rate(c.rate ?? 0)}`, c.block === height ? '' : `block ${num(c.block)}`]
+                    extra={[
+                      c.fee === null ? '' : `${sats(c.fee)} · ${rate(c.rate ?? 0)}`,
+                      c.block === height ? '' : `block ${num(c.block)}`,
+                      c.unseen ? 'private' : '',
+                    ]
                       .filter(Boolean)
                       .join(' · ')}
                   />

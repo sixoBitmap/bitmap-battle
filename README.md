@@ -39,6 +39,16 @@ important happens in your battle: a new block, your coins arriving, being outbid
 **Leave** at any time before the block. A key-path spend sends the deposit back to your payment address. It also
 cancels a claim that is still waiting, so nothing is inscribed.
 
+**Who is fighting.** Every claim shows its fee rate and, under it, the most it can still raise to with the coins it
+already spends (`max 174k` sat/vB; `all in` when nothing is left). The app tells three kinds of claimers apart:
+
+- 🤖 **Bot**: the bitmap bot, which signs every claim with the same key.
+- 👻 **Ghost**: someone whose claim was mined by a pool that takes private submissions (MARA Pool, SpiderPool)
+  without ever reaching this node's mempool. Ghosts can't be seen or outbid before the block. A ghost is named
+  after the address its bitmaps go to, since it may sign every claim with a new key. The server learns ghosts from
+  its own node and keeps them in `data/<network>/ghosts.json`.
+- 👤 **Minter**: everyone else, including Bitmap Battle players.
+
 **Past battles** are in the hall of fame. Tap a champion to see every claim in that block, the fee each one paid,
 and a mempool link for each.
 

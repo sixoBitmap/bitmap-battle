@@ -4,6 +4,7 @@ import { outputScript } from '@bitmap-battle/core';
 import { Bitmaps } from './bitmaps.ts';
 import { loadConfig } from './config.ts';
 import { Dev } from './dev.ts';
+import { Ghosts } from './ghosts.ts';
 import { serve } from './http.ts';
 import { log } from './log.ts';
 import { announcePublicLink } from './public-link.ts';
@@ -28,7 +29,8 @@ setTimeout(() => {
   const found = bitmaps.findGaps();
   if (cfg.bitmapDb) log(`bitmap index: ${found} unclaimed bitmap(s) below its last block`);
 }, 3000);
-const watcher = new Watcher(rpc, bitmaps, cfg.pollMs);
+const ghosts = new Ghosts(join(cfg.dataDir, 'ghosts.json'), cfg.network);
+const watcher = new Watcher(rpc, bitmaps, cfg.pollMs, cfg.network, ghosts);
 const seats = new Seats();
 const push = new Push(cfg.dataDir, cfg.vapidSubject);
 const dev = cfg.network === 'regtest' ? new Dev(rpc, new Rpc(`${cfg.rpcUrl}/wallet/bb-dev`, cfg.rpcAuth), watcher, cfg.dataDir) : null;
@@ -42,8 +44,8 @@ if (cfg.tipAddress) {
   }
 }
 
-const state = () => buildState(cfg.network, watcher, bitmaps, seats);
-const server = serve(cfg, { rpc, watcher, bitmaps, seats, push, dev, state });
+const state = () => buildState(cfg.network, watcher, bitmaps, seats, ghosts);
+const server = serve(cfg, { rpc, watcher, bitmaps, seats, push, dev, ghosts, state });
 
 const announced = new Set<number>();
 watcher.on('change', () => {

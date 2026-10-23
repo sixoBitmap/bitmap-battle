@@ -10,14 +10,39 @@ export type Config = {
   tipAmounts: number[];
 };
 
-export type ClaimView = { txid: string; index: number; rate: number; eff: number; fee: number; vsize: number; key: string | null; seen: number };
+// max: the highest rate the claim can raise to with the coins it already spends (sat/vB), null when unknown.
+export type ClaimView = {
+  txid: string;
+  index: number;
+  rate: number;
+  eff: number;
+  fee: number;
+  vsize: number;
+  key: string | null;
+  owner: string | null;
+  ghost: boolean;
+  max: number | null;
+  seen: number;
+};
+export type ResultClaim = {
+  n: number;
+  inscription: string;
+  txid: string;
+  position: number;
+  valid: boolean | null;
+  key: string | null;
+  owner: string | null;
+  ghost: boolean;
+  unseen: boolean | null;
+};
 export type TableView = { n: number; kind: 'live' | 'next' | 'open'; claims: ClaimView[]; seat: string | null; hot: boolean };
 export type ResultView = {
   height: number;
   hash: string;
   time: number;
   seenAt: number;
-  claims: { n: number; inscription: string; txid: string; position: number; valid: boolean | null; key: string | null }[];
+  pool: string | null;
+  claims: ResultClaim[];
 };
 export type Rates = { nextBlock: number; minRelay: number; incremental: number };
 export type PublicState = {
@@ -44,6 +69,10 @@ export type BattleClaim = {
   txid: string;
   inscription: string;
   block: number;
+  pool: string | null;
+  owner: string | null;
+  ghost: boolean;
+  unseen: boolean | null;
   position: number;
   valid: boolean | null;
   key: string | null;

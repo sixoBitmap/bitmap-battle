@@ -884,8 +884,18 @@ button:disabled {
 }
 
 .bar-rate {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.05;
   font-variant-numeric: tabular-nums;
   color: var(--label);
+}
+
+.bar-rate small {
+  font-size: 10px;
+  font-weight: 700;
+  opacity: 0.75;
 }
 
 .dock {

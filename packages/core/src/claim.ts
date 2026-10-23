@@ -68,6 +68,14 @@ export function outputScript(address: string, network: Network): Uint8Array {
   return OutScript.encode(Address(btcNetwork(network)).decode(address));
 }
 
+export function addressOf(script: Uint8Array, network: Network): string | null {
+  try {
+    return Address(btcNetwork(network)).encode(OutScript.decode(script));
+  } catch {
+    return null;
+  }
+}
+
 // Bitcoin Core's dust threshold at its default dust relay fee of 3 sat/vB.
 export function dustLimit(script: Uint8Array): number {
   const outputSize = 8 + 1 + script.length;

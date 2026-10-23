@@ -6,6 +6,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import type { Bitmaps } from './bitmaps.ts';
 import type { Config } from './config.ts';
 import type { Dev } from './dev.ts';
+import type { Ghosts } from './ghosts.ts';
 import { log } from './log.ts';
 import type { Push } from './push.ts';
 import { RpcError, type Rpc } from './rpc.ts';
@@ -57,6 +58,10 @@ type BattleClaim = {
   txid: string;
   inscription: string;
   block: number;
+  pool: string | null;
+  owner: string | null;
+  ghost: boolean;
+  unseen: boolean | null;
   position: number;
   valid: boolean | null;
   key: string | null;
@@ -65,7 +70,16 @@ type BattleClaim = {
   rate: number | null;
 };
 
-type Deps = { rpc: Rpc; watcher: Watcher; bitmaps: Bitmaps; seats: Seats; push: Push; dev: Dev | null; state: () => PublicState };
+type Deps = {
+  rpc: Rpc;
+  watcher: Watcher;
+  bitmaps: Bitmaps;
+  seats: Seats;
+  push: Push;
+  dev: Dev | null;
+  ghosts: Ghosts;
+  state: () => PublicState;
+};
 
 async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
   let size = 0;
@@ -176,7 +190,21 @@ export function serve(cfg: Config, deps: Deps) {
       claims.slice(0, 50).map(async ({ c, b }) => {
         const { fee, vsize } = await paid(c.txid, b);
         const rate = fee === null ? null : Math.round((fee / vsize) * 100) / 100;
-        return { txid: c.txid, inscription: c.inscription, block: b.height, position: c.position, valid: c.valid, key: c.key?.slice(0, 8) ?? null, fee, vsize, rate };
+        return {
+          txid: c.txid,
+          inscription: c.inscription,
+          block: b.height,
+          pool: b.pool,
+          owner: c.address,
+          ghost: deps.ghosts.has(c.address),
+          unseen: c.unseen,
+          position: c.position,
+          valid: c.valid,
+          key: c.key?.slice(0, 8) ?? null,
+          fee,
+          vsize,
+          rate,
+        };
       }),
     );
   }

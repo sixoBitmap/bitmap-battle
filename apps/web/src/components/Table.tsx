@@ -19,7 +19,7 @@ import {
   type Takeback,
   takeBack,
 } from '../lib/battles.ts';
-import { ago, compact, explorer, num, rate, roman, sats, short, who } from '../lib/format.ts';
+import { ago, type Claimer, compact, explorer, num, rate, roman, sats, short, who } from '../lib/format.ts';
 import { type Funds, planBudgets, readCoins } from '../lib/funds.ts';
 import { useCoins, useNow } from '../lib/hooks.ts';
 import { live, onBlock } from '../lib/live.ts';
@@ -311,7 +311,7 @@ export function Table({ n }: { n: number }) {
 
       <div className="arena">
         {finished ? (
-          <Outcome phase={phase} b={b} n={n} winner={winnerClaim?.key} />
+          <Outcome phase={phase} b={b} n={n} winner={winnerClaim} />
         ) : claims.length ? (
           <Fight claims={claims} mine={mineTx} />
         ) : (
@@ -345,7 +345,7 @@ export function Table({ n }: { n: number }) {
                 return (
                   <span key={r.height}>
                     {num(r.height).slice(-3)}
-                    {champ ? who(champ.key).icon : '·'}
+                    {champ ? who(champ).icon : '·'}
                   </span>
                 );
               })}
@@ -527,8 +527,8 @@ function Status({ phase, leading, seen, n, next }: { phase: Phase; leading: bool
   return text[phase] ? <div className="status">{text[phase]}</div> : null;
 }
 
-function Outcome({ phase, b, n, winner }: { phase: Phase; b: Battle | null; n: number; winner: string | null | undefined }) {
-  const w = winner !== undefined ? who(winner) : null;
+function Outcome({ phase, b, n, winner }: { phase: Phase; b: Battle | null; n: number; winner: Claimer | null }) {
+  const w = winner ? who(winner) : null;
   if (phase === 'won' && b) {
     const link = b.winner ? explorer(b.network, 'inscription', b.winner) : '';
     return (

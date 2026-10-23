@@ -1,16 +1,42 @@
 import type { Network } from '@bitmap-battle/core';
 import type { Bitmaps } from './bitmaps.ts';
+import type { Ghosts } from './ghosts.ts';
 import type { Seats } from './seats.ts';
 import type { Watcher } from './watcher.ts';
 
-export type ClaimView = { txid: string; index: number; rate: number; eff: number; fee: number; vsize: number; key: string | null; seen: number };
+// max: the highest rate this claim can raise to with the coins it already spends (sat/vB).
+export type ClaimView = {
+  txid: string;
+  index: number;
+  rate: number;
+  eff: number;
+  fee: number;
+  vsize: number;
+  key: string | null;
+  owner: string | null;
+  ghost: boolean;
+  max: number | null;
+  seen: number;
+};
+export type ResultClaim = {
+  n: number;
+  inscription: string;
+  txid: string;
+  position: number;
+  valid: boolean | null;
+  key: string | null;
+  owner: string | null;
+  ghost: boolean;
+  unseen: boolean | null;
+};
 export type TableView = { n: number; kind: 'live' | 'next' | 'open'; claims: ClaimView[]; seat: string | null; hot: boolean };
 export type ResultView = {
   height: number;
   hash: string;
   time: number;
   seenAt: number;
-  claims: { n: number; inscription: string; txid: string; position: number; valid: boolean | null; key: string | null }[];
+  pool: string | null;
+  claims: ResultClaim[];
 };
 export type PublicState = {
   network: Network;
@@ -24,7 +50,7 @@ export type PublicState = {
 
 const round2 = (x: number) => Math.round(x * 100) / 100;
 
-export function buildState(network: Network, watcher: Watcher, bitmaps: Bitmaps, seats: Seats): PublicState {
+export function buildState(network: Network, watcher: Watcher, bitmaps: Bitmaps, seats: Seats, ghosts: Ghosts): PublicState {
   const tip = watcher.tip.height;
   const byNumber = new Map<number, ClaimView[]>();
   for (const p of watcher.pool.values()) {
@@ -40,6 +66,9 @@ export function buildState(network: Network, watcher: Watcher, bitmaps: Bitmaps,
         fee: p.fee,
         vsize: p.vsize,
         key: c.key?.slice(0, 8) ?? null,
+        owner: p.owner,
+        ghost: ghosts.has(p.owner),
+        max: p.fee ? round2(Math.max(p.fee, p.outValue + p.fee - p.keep) / p.vsize) : null,
         seen: p.seen,
       });
       byNumber.set(c.n, list);
@@ -66,7 +95,18 @@ export function buildState(network: Network, watcher: Watcher, bitmaps: Bitmaps,
         hash: b.hash,
         time: b.time,
         seenAt: b.seenAt,
-        claims: b.claims.map((c) => ({ n: c.n, inscription: c.inscription, txid: c.txid, position: c.position, valid: c.valid, key: c.key?.slice(0, 8) ?? null })),
+        pool: b.pool,
+        claims: b.claims.map((c) => ({
+          n: c.n,
+          inscription: c.inscription,
+          txid: c.txid,
+          position: c.position,
+          valid: c.valid,
+          key: c.key?.slice(0, 8) ?? null,
+          owner: c.address,
+          ghost: ghosts.has(c.address),
+          unseen: c.unseen,
+        })),
       })),
     now: Date.now(),
   };

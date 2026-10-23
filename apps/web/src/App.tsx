@@ -72,7 +72,7 @@ function HallOfFame() {
         return winner ? (
           <button key={r.height} type="button" className="fame" onClick={() => setLog(r.height)}>
             <b>{num(r.height)}</b>
-            <span>{`${who(winner.key).icon} ${who(winner.key).name}`}</span>
+            <span>{`${who(winner).icon} ${who(winner).name}`}</span>
             <em>{fights > 1 ? `⚔ ${fights}` : '📜'}</em>
           </button>
         ) : (

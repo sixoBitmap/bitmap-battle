@@ -59,9 +59,21 @@ export const short = (s: string, head = 6, tail = 4) => (s.length > head + tail 
 // The bitmap bot signs every claim with the same key.
 export const BOT_KEYS = new Set(['7dd6a85f']);
 
-export function who(key: string | null): { icon: string; name: string } {
-  if (key && BOT_KEYS.has(key)) return { icon: '🤖', name: `Bot ${key}` };
-  return { icon: '👤', name: key ? `Minter ${key}` : 'Minter' };
+// A ghost sends its claims straight to private pools, so they never show up in the mempool: it is named after the
+// address its bitmaps go to, since it signs every claim with a new key.
+export type Claimer = { key: string | null; owner?: string | null; ghost?: boolean };
+
+export function who(c: Claimer): { icon: string; name: string } {
+  if (c.key && BOT_KEYS.has(c.key)) return { icon: '🤖', name: `Bot ${c.key}` };
+  if (c.ghost) return { icon: '👻', name: `Ghost ${c.owner ? short(c.owner, 6, 4) : (c.key ?? '')}`.trim() };
+  return { icon: '👤', name: c.key ? `Minter ${c.key}` : 'Minter' };
+}
+
+// A fee rate that can run into the thousands: 960, 12k, 1.2M.
+export function bigRate(r: number): string {
+  if (r >= 1e6) return `${trim((r / 1e6).toFixed(1))}M`;
+  if (r >= 1000) return `${trim((r / 1000).toFixed(r >= 100_000 ? 0 : 1))}k`;
+  return r >= 100 ? String(Math.round(r)) : trim(r.toFixed(1));
 }
 
 export function explorer(network: string, kind: 'tx' | 'inscription', id: string): string {

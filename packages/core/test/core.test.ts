@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { Transaction } from '@scure/btc-signer';
 import {
+  addressOf,
   bitmapScript,
   buildRefund,
   buildReveal,
@@ -52,6 +53,22 @@ test('real mainnet claims are found with their number and key', () => {
     claimsInTx(bot).map((c) => [c.n, c.key?.slice(0, 8)]),
     [[fixtures.height, '7dd6a85f']],
   );
+});
+
+test('a multi-claim transaction: pointers, the owner of each claim and the outputs it can still spend', () => {
+  const [spray, bot] = fixtures.claims.map((c) => parseTx(fromHex(c.hex)));
+  const claims = claimsInTx(spray);
+  assert.deepEqual(
+    claims.map((c) => c.pointer),
+    [null, 330, 660, 990, 1320, 1650],
+  );
+  assert.equal(spray.outputs.length, 1);
+  assert.equal(spray.outputs[0].value, 4876);
+  const owners = new Set(claims.map((c) => addressOf(c.owner!, 'mainnet')));
+  assert.deepEqual([...owners], ['bc1qm4qm4uszjkwyn0syduwwurdvnnqp426z0f3fhg']);
+  const [botClaim] = claimsInTx(bot);
+  assert.equal(addressOf(botClaim.owner!, 'mainnet'), addressOf(bot.outputs[0].script, 'mainnet'));
+  assert.equal(addressOf(Uint8Array.of(0x6a), 'mainnet'), null);
 });
 
 test('claim rules follow bitmap_index.py', () => {
