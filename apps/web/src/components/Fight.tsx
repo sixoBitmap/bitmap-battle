@@ -1,5 +1,7 @@
 import type { ClaimView } from '../lib/api.ts';
-import { bigRate, compact, rate, who } from '../lib/format.ts';
+import { bigRate, compact, explorer, rate, who } from '../lib/format.ts';
+import { live } from '../lib/live.ts';
+import { speak } from '../lib/mood.ts';
 
 // How far a claim can still go with the coins it already spends: nothing left once its rate is its max.
 function room(c: ClaimView): { label: string; title: string } {
@@ -7,6 +9,21 @@ function room(c: ClaimView): { label: string; title: string } {
   const coins = compact(Math.round(c.max * c.vsize));
   if (c.max - c.rate < 0.01) return { label: 'all in', title: `It has already bid all ${coins} it holds` };
   return { label: `max ${bigRate(c.max)}`, title: `Can raise to ${bigRate(c.max)} sat/vB with the ${coins} it already holds` };
+}
+
+// Opens the claim on mempool.space to check it there; on networks without an explorer the cube reads its txid.
+function TxLink({ txid }: { txid: string }) {
+  const { config } = live.use();
+  const link = config ? explorer(config.network, 'tx', txid) : '';
+  return link ? (
+    <a className="bar-link" href={link} target="_blank" rel="noopener" title="Open this claim on mempool.space">
+      ↗
+    </a>
+  ) : (
+    <button type="button" className="bar-link" title={txid} onClick={() => speak(`Claim ${txid}`)}>
+      ↗
+    </button>
+  );
 }
 
 // The claims of one bitmap as bars, best first: the leader wears the crown.
@@ -21,9 +38,12 @@ export function Fight({ claims, mine, compact }: { claims: ClaimView[]; mine: st
         return (
           <div key={c.txid} className={`bar ${me ? 'me' : ''} ${i === 0 ? 'lead' : ''}`}>
             <div className="bar-fill" style={{ width: `${Math.max(8, (c.eff / top) * 100)}%` }} />
-            <span className="bar-label">
-              {i === 0 && '👑 '}
-              {me ? '⭐ YOU' : `${w.icon} ${w.name}`}
+            <span className="bar-who">
+              <span className="bar-label">
+                {i === 0 && '👑 '}
+                {me ? '⭐ YOU' : `${w.icon} ${w.name}`}
+              </span>
+              <TxLink txid={c.txid} />
             </span>
             <span className="bar-rate" title={r.title}>
               {rate(c.eff)}

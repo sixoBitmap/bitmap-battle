@@ -883,6 +883,33 @@ button:disabled {
   text-overflow: ellipsis;
 }
 
+.bar-who {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.bar-link {
+  flex: none;
+  padding: 1px 5px;
+  border: 0;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.35);
+  color: var(--crimson);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.bar-link:hover {
+  background: rgba(255, 255, 255, 0.7);
+}
+
 .bar-rate {
   display: flex;
   flex-direction: column;
