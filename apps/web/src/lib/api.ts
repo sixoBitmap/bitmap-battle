@@ -1,4 +1,4 @@
-import type { ClusterTx, Network } from '@bitmap-battle/core';
+import type { ClusterTx, GhostBundle, Network } from '@bitmap-battle/core';
 
 export type Config = {
   network: Network;
@@ -8,6 +8,8 @@ export type Config = {
   dev: boolean;
   tipAddress: string | null;
   tipAmounts: number[];
+  // The private pool ghost runs go through, or null when this server has none.
+  privatePool: string | null;
 };
 
 // max: the highest rate the claim can raise to with the coins it already spends (sat/vB), null when unknown.
@@ -52,6 +54,7 @@ export type PublicState = {
   rates: Rates;
   tables: TableView[];
   results: ResultView[];
+  ghostRun: boolean;
   now: number;
 };
 
@@ -80,6 +83,23 @@ export type BattleClaim = {
   vsize: number;
   rate: number | null;
 };
+export type GhostSent = { n: number; rung: number; txid: string; fee: number; vsize: number; rate: number; at: number };
+export type GhostRunView = {
+  id: string;
+  state: 'waiting' | 'chasing' | 'won' | 'lost' | 'refunded' | 'gone';
+  stopped: boolean;
+  first: number;
+  count: number;
+  start: number;
+  extra: number;
+  deposit: { txid: string; vout: number; amount: number };
+  sent: GhostSent[];
+  refund: { txid: string; fee: number; rate: number; at: number } | null;
+  note: string;
+  winner: string | null;
+  block: number | null;
+};
+export type PrivateInfo = { pool: string | null; floor: number | null; recent: { n: number; block: number; pool: string | null; rate: number | null; won: boolean }[] };
 export type Outspend = { unspent: boolean; spender: string | null; confirmations: number | null };
 export type BitmapInfo = { n: number; claimed: { inscription: string; height: number } | null | 'unknown'; scannedTo: number };
 
@@ -107,4 +127,10 @@ export const api = {
   seat: (n: number, player: string) => post<{ ok: boolean }>('/api/seat', { n, player }),
   release: (n: number, player: string) => post<{ ok: boolean }>('/api/seat/release', { n, player }).catch(() => null),
   funded: (n: number, player: string, txid: string) => post<{ ok: boolean }>('/api/seat/funded', { n, player, txid }).catch(() => null),
+  privateInfo: () => get<PrivateInfo>('/api/private'),
+  ghostSeat: (player: string) => post<{ ok: boolean }>('/api/ghost/seat', { player }),
+  ghostRelease: (player: string) => post<{ ok: boolean }>('/api/ghost/release', { player }).catch(() => null),
+  ghostStart: (player: string, id: string, bundle: GhostBundle) => post<GhostRunView>('/api/ghost/start', { player, id, bundle }),
+  ghostStop: (player: string, id: string) => post<GhostRunView>('/api/ghost/stop', { player, id }),
+  ghostRun: (player: string, id: string) => get<GhostRunView>(`/api/ghost/run/${id}?player=${player}`),
 };

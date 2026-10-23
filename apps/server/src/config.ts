@@ -16,6 +16,8 @@ export type Config = {
   vapidSubject: string;
   tipAddress: string | null;
   tipAmounts: number[];
+  // Where ghost runs send their claims: 'dev' for the regtest stand-in, or null for no ghost runs.
+  slipstream: string | null;
 };
 
 const RPC_PORTS: Record<Network, number> = { mainnet: 8332, testnet: 18332, testnet4: 48332, signet: 38332, regtest: 18443 };
@@ -43,6 +45,11 @@ function cookieCandidates(network: Network): string[] {
     dirs.push(join(process.env.HOME, '.bitcoin'), join(process.env.HOME, 'Library/Application Support/Bitcoin'));
   }
   return dirs.map((d) => join(d, sub, '.cookie'));
+}
+
+// Ghost runs work on regtest only for now, against the local stand-in for a private pool.
+function slipstreamFor(network: Network, option: string | undefined): string | null {
+  return network === 'regtest' && option !== 'off' ? 'dev' : null;
 }
 
 export function loadConfig(argv = process.argv.slice(2)): Config {
@@ -87,5 +94,6 @@ export function loadConfig(argv = process.argv.slice(2)): Config {
       .split(',')
       .map(Number)
       .filter((x) => Number.isSafeInteger(x) && x >= 546),
+    slipstream: slipstreamFor(network, get('slipstream', 'BB_SLIPSTREAM')),
   };
 }

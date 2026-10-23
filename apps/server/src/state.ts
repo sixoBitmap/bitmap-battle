@@ -1,6 +1,7 @@
 import type { Network } from '@bitmap-battle/core';
 import type { Bitmaps } from './bitmaps.ts';
 import type { Ghosts } from './ghosts.ts';
+import type { GhostRuns } from './ghostrun.ts';
 import type { Seats } from './seats.ts';
 import type { Watcher } from './watcher.ts';
 
@@ -45,12 +46,14 @@ export type PublicState = {
   rates: { nextBlock: number; minRelay: number; incremental: number };
   tables: TableView[];
   results: ResultView[];
+  // A ghost run holds this server's one private seat.
+  ghostRun: boolean;
   now: number;
 };
 
 const round2 = (x: number) => Math.round(x * 100) / 100;
 
-export function buildState(network: Network, watcher: Watcher, bitmaps: Bitmaps, seats: Seats, ghosts: Ghosts): PublicState {
+export function buildState(network: Network, watcher: Watcher, bitmaps: Bitmaps, seats: Seats, ghosts: Ghosts, runs: GhostRuns): PublicState {
   const tip = watcher.tip.height;
   const byNumber = new Map<number, ClaimView[]>();
   for (const p of watcher.pool.values()) {
@@ -108,6 +111,7 @@ export function buildState(network: Network, watcher: Watcher, bitmaps: Bitmaps,
           unseen: c.unseen,
         })),
       })),
+    ghostRun: runs.taken(),
     now: Date.now(),
   };
 }

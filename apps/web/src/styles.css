@@ -1377,6 +1377,100 @@ a.fame span {
   cursor: pointer;
 }
 
+/* ghost mint */
+
+.ghost-entry {
+  flex: none;
+  align-self: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-2);
+  text-decoration: underline;
+}
+
+.ghost-page {
+  gap: clamp(6px, 1.2dvh, 10px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.ghost-page > * {
+  flex: none;
+}
+
+.ghost-page > .muted {
+  margin: 0;
+  font-size: 12px;
+}
+
+.ghost-facts {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.ghost-facts b {
+  color: var(--crimson);
+}
+
+.ghost-picks {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
+.ghost-picks > div {
+  display: flex;
+  gap: 5px;
+}
+
+.pick {
+  min-width: 36px;
+  padding: 5px 8px;
+  border: 1px solid var(--wood-2);
+  border-radius: 3px;
+  background: linear-gradient(var(--parch-2), var(--parch-3));
+  color: var(--ink);
+  font: inherit;
+  font-weight: 700;
+  text-align: center;
+  cursor: pointer;
+}
+
+input.pick {
+  width: 58px;
+  cursor: text;
+}
+
+.pick.on {
+  border-color: var(--crimson);
+  background: linear-gradient(#f6d58b, #d9a84a);
+  box-shadow: inset 0 0 0 1px var(--crimson);
+}
+
+.ghost-sum {
+  flex: none;
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.ghost-status.won {
+  color: var(--crimson);
+}
+
+.ghost-log {
+  flex: 1;
+  min-height: 0;
+}
+
 /* rules */
 
 .segment {

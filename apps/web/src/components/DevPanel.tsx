@@ -3,7 +3,11 @@ import { get, post } from '../lib/api.ts';
 import { COINS_CHANGED } from '../lib/hooks.ts';
 import { fail, toast } from '../lib/toast.ts';
 
-type Status = { rival: { enabled: boolean; maxRate: number }; automine: number };
+type Status = {
+  rival: { enabled: boolean; maxRate: number };
+  automine: number;
+  private: { floor: number; held: number; rival: { enabled: boolean; rate: number } };
+};
 
 // Regtest only: drive the private test network from the phone.
 export function DevPanel() {
@@ -36,9 +40,26 @@ export function DevPanel() {
           <button onClick={() => act('/dev/mine', { blocks: 1 }, 'Block mined').then(() => window.dispatchEvent(new Event(COINS_CHANGED)))}>
             ⛏ Mine a block
           </button>
+          <button onClick={() => act('/dev/mine-mara', {}, 'MARA block mined: private claims included').then(() => window.dispatchEvent(new Event(COINS_CHANGED)))}>
+            👻 Mine a MARA block
+          </button>
           <label>
             <input type="checkbox" checked={s.rival.enabled} onChange={(e) => act('/dev/rival', { enabled: e.target.checked })} /> Rival bot
             fights
+          </label>
+          <label>
+            <input type="checkbox" checked={s.private.rival.enabled} onChange={(e) => act('/dev/private', { rival: e.target.checked })} /> Private
+            rival ({s.private.rival.rate})
+          </label>
+          <label>
+            Private floor
+            <select value={s.private.floor} onChange={(e) => act('/dev/private', { floor: Number(e.target.value) })}>
+              {[1, 2, 3, 4, 6].map((r) => (
+                <option key={r} value={r}>
+                  {r} sat/vB
+                </option>
+              ))}
+            </select>
           </label>
           <label>
             Rival max

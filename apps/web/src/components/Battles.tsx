@@ -31,6 +31,7 @@ function Row({ b }: { b: Battle }) {
 
   useEffect(() => {
     if (b.outcome && b.outcome !== 'won') recoverable(b.id).then(setBack, () => setBack(false));
+    else setBack(false);
   }, [b.id, b.outcome, b.refund?.txid, tip]);
 
   const takeBackNow = async () => {
@@ -52,7 +53,11 @@ function Row({ b }: { b: Battle }) {
 
   const status = b.outcome
     ? LABEL[b.outcome]
-    : !b.deposit
+    : b.ghost
+      ? b.claims.length
+        ? `👻 Ghost run (${b.claims.length} tr${b.claims.length > 1 ? 'ies' : 'y'})`
+        : '👻 Ghost run'
+      : !b.deposit
       ? 'No deposit yet'
       : b.deposit.vout === null
         ? 'Deposit arriving'
@@ -101,13 +106,18 @@ function Row({ b }: { b: Battle }) {
             <div className="tx muted">No deposit yet</div>
           )}
           {b.claims.map((c, i) => (
-            <Tx key={c.txid} name={b.claims.length > 1 ? `Bid ${i + 1}` : 'Claim'} id={c.txid} extra={`${sats(c.fee)} · ${rate(c.rate)}`} />
+            <Tx
+              key={c.txid}
+              name={c.n !== undefined ? `Claim ${num(c.n)}` : b.claims.length > 1 ? `Bid ${i + 1}` : 'Claim'}
+              id={c.txid}
+              extra={`${sats(c.fee)} · ${rate(c.rate)}`}
+            />
           ))}
           {b.refund && <Tx name="Sats back" id={b.refund.txid} extra={sats(b.refund.fee)} />}
-          {b.outcome === 'won' && b.claims.length > 0 && <Tx name="Your bitmap" id={`${b.claims.at(-1)!.txid}i0`} kind="inscription" />}
+          {b.outcome === 'won' && b.claims.length > 0 && <Tx name="Your bitmap" id={b.winner ?? `${b.claims.at(-1)!.txid}i0`} kind="inscription" />}
           {!b.outcome && (
-            <a className="link" href={`#/table/${b.n}`}>
-              ⚔ Back to the battle
+            <a className="link" href={b.ghost ? '#/ghost' : `#/table/${b.n}`}>
+              {b.ghost ? '👻 To the ghost run' : '⚔ Back to the battle'}
             </a>
           )}
         </div>

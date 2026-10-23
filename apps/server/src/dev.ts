@@ -1,7 +1,20 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { type Built, buildReveal, chunkRate, type Coin, commitFor, feeForRate, newSecret, POSTAGE, type RevealParams, toHex } from '@bitmap-battle/core';
+import {
+  type Built,
+  buildReveal,
+  chunkRate,
+  type Coin,
+  commitFor,
+  feeForRate,
+  newSecret,
+  POSTAGE,
+  replacementFee,
+  type RevealParams,
+  toHex,
+} from '@bitmap-battle/core';
 import { log } from './log.ts';
+import type { PrivatePool } from './private.ts';
 import type { Rpc } from './rpc.ts';
 import type { Watcher } from './watcher.ts';
 
@@ -16,6 +29,8 @@ const RIVAL_BUDGET = 50_000;
 const FAUCET = 1_000_000;
 
 type Unspent = { txid: string; vout: number; amount: number; address?: string; confirmations: number; spendable: boolean };
+type Held = { txid: string; hex: string; outpoint: string; fee: number; vsize: number; locktime: number };
+type Decoded = { txid: string; vsize: number; locktime: number; vin: { txid: string; vout: number }[]; vout: { value: number }[] };
 
 export class Dev {
   accounts!: { payment: Account; ordinals: Account };
@@ -27,6 +42,23 @@ export class Dev {
   private readonly coins = new Map<number, RivalCoin>();
   private mineTimer: NodeJS.Timeout | null = null;
   private busy = false;
+  // A stand-in for MARA Slipstream: transactions held out of the public mempool, replaced by fee the way a node does,
+  // and mined only by "MARA blocks". The private rival claims every block through it at a fixed rate, like the
+  // ghost bot does on mainnet.
+  privateFloor = 2;
+  privateRival = { enabled: false, rate: 3.1, claimed: 0 };
+  private readonly held = new Map<string, Held>();
+  private readonly maraBlocks = new Set<string>();
+  private privateRivalAt = -1;
+  private readonly privateCoins = new Map<number, { secret: Uint8Array; coin: Coin }>();
+
+  readonly pool: PrivatePool = {
+    name: 'the regtest private pool',
+    floor: async () => this.privateFloor,
+    submit: async (hex) => {
+      await this.hold(hex);
+    },
+  };
 
   constructor(
     private readonly node: Rpc,
@@ -125,7 +157,126 @@ export class Dev {
   }
 
   status() {
-    return { accounts: this.accounts, rival: this.rival, automine: this.automine };
+    return {
+      accounts: this.accounts,
+      rival: this.rival,
+      automine: this.automine,
+      private: { floor: this.privateFloor, held: this.held.size, rival: this.privateRival },
+    };
+  }
+
+  // The pool of a block mined here: only the coinbase of a real block names it.
+  poolOf(hash: string): string | null {
+    return this.maraBlocks.has(hash) ? 'MARA Pool' : null;
+  }
+
+  private async hold(hex: string): Promise<string> {
+    const tx = await this.node.call<Decoded>('decoderawtransaction', hex);
+    const [input] = tx.vin;
+    const outpoint = `${input.txid}:${input.vout}`;
+    const prev = await this.node.call<{ value: number } | null>('gettxout', input.txid, input.vout, true);
+    if (!prev) throw new Error('bad-txns-inputs-missingorspent');
+    const fee = Math.round(prev.value * 1e8) - tx.vout.reduce((s, o) => s + Math.round(o.value * 1e8), 0);
+    if (fee / tx.vsize < this.privateFloor) throw new Error(`fee rate ${(fee / tx.vsize).toFixed(2)} is below the private floor of ${this.privateFloor}`);
+    const [check] = await this.node.call<{ allowed: boolean; 'reject-reason'?: string }[]>('testmempoolaccept', [hex]);
+    if (!check.allowed) throw new Error(check['reject-reason'] ?? 'rejected');
+    const old = this.held.get(outpoint);
+    if (old && old.txid !== tx.txid && fee < replacementFee(old, tx.vsize, Math.max(0.1, this.watcher.rates.incremental))) {
+      throw new Error(`insufficient fee, rejecting replacement ${tx.txid}`);
+    }
+    this.held.set(outpoint, { txid: tx.txid, hex, outpoint, fee, vsize: tx.vsize, locktime: tx.locktime });
+    return tx.txid;
+  }
+
+  // A block from the private pool: the public mempool and the held transactions, best fee rate first, the way a pool
+  // fills its template. A held transaction takes the place of a public one spending the same coin when it pays more.
+  async mineMara(): Promise<string> {
+    const height = (await this.node.call<number>('getblockcount')) + 1;
+    type Template = { transactions: { data: string; txid: string; fee: number; weight: number; depends: number[] }[] };
+    const tpl = await this.node.call<Template>('getblocktemplate', { rules: ['segwit'] });
+    type Item = { hex: string; txid: string; fee: number; rate: number; spends: string[]; parents: string[] };
+    const items: Item[] = [];
+    for (const t of tpl.transactions) {
+      const d = await this.node.call<Decoded>('decoderawtransaction', t.data);
+      items.push({
+        hex: t.data,
+        txid: t.txid,
+        fee: t.fee,
+        rate: t.fee / (t.weight / 4),
+        spends: d.vin.map((i) => `${i.txid}:${i.vout}`),
+        parents: t.depends.map((k) => tpl.transactions[k - 1].txid),
+      });
+    }
+    for (const h of [...this.held.values()]) {
+      if (h.locktime >= height) continue;
+      const [txid, vout] = h.outpoint.split(':');
+      const spender = items.find((i) => i.spends.includes(h.outpoint));
+      if (spender) {
+        if (spender.fee >= h.fee) continue;
+        const gone = new Set([spender.txid]);
+        for (let grew = true; grew; ) {
+          grew = false;
+          for (const i of items) {
+            if (!gone.has(i.txid) && i.parents.some((p) => gone.has(p))) {
+              gone.add(i.txid);
+              grew = true;
+            }
+          }
+        }
+        for (let k = items.length - 1; k >= 0; k--) if (gone.has(items[k].txid)) items.splice(k, 1);
+      } else if (!(await this.node.call<object | null>('gettxout', txid, Number(vout), true))) {
+        this.held.delete(h.outpoint);
+        continue;
+      }
+      items.push({ hex: h.hex, txid: h.txid, fee: h.fee, rate: h.fee / h.vsize, spends: [h.outpoint], parents: items.some((i) => i.txid === txid) ? [txid] : [] });
+    }
+    const ordered: Item[] = [];
+    const placed = new Set<string>();
+    const left = [...items];
+    while (left.length) {
+      const ready = left.filter((i) => i.parents.every((p) => placed.has(p))).sort((a, b) => b.rate - a.rate);
+      if (!ready.length) break;
+      ordered.push(ready[0]);
+      placed.add(ready[0].txid);
+      left.splice(left.indexOf(ready[0]), 1);
+    }
+    const { hash } = await this.node.call<{ hash: string }>('generateblock', this.miner, ordered.map((i) => i.hex));
+    this.maraBlocks.add(hash);
+    for (const h of [...this.held.values()]) if (placed.has(h.txid)) this.held.delete(h.outpoint);
+    const held = ordered.filter((i) => !tpl.transactions.some((t) => t.txid === i.txid)).length;
+    log(`MARA block ${height}: ${ordered.length} transactions, ${held} of them private`);
+    return hash;
+  }
+
+  // The private rival, like the ghost bot on mainnet: each block it funds a fresh coin for the number after next, and
+  // claims the next number at a fixed rate from the coin it funded a block ago, never raising.
+  private async privateClaim(): Promise<void> {
+    const n = this.watcher.tip.height + 1;
+    if (n === this.privateRivalAt) return;
+    this.privateRivalAt = n;
+    for (const k of this.privateCoins.keys()) if (k < n) this.privateCoins.delete(k);
+    const ready = this.privateCoins.get(n);
+    if (!this.privateCoins.has(n + 1)) {
+      const secret = newSecret();
+      const commit = commitFor(secret, n + 1, 'regtest');
+      const txid = await this.spend('bank', commit.address, RIVAL_BUDGET);
+      const tx = await this.node.call<{ vout: { n: number; scriptPubKey: { hex: string } }[] }>('getrawtransaction', txid, 1);
+      const vout = tx.vout.find((o) => o.scriptPubKey.hex === toHex(commit.script))!.n;
+      this.privateCoins.set(n + 1, { secret, coin: { txid, vout, amount: RIVAL_BUDGET } });
+    }
+    if (!ready) return;
+    const params: RevealParams = {
+      secret: ready.secret,
+      n,
+      coin: ready.coin,
+      postageAddress: this.rivalAddresses.postage,
+      changeAddress: this.rivalAddresses.change,
+      network: 'regtest',
+    };
+    const built = buildReveal(params, Math.ceil(this.privateRival.rate * buildReveal(params, 0, false).vsize));
+    await this.hold(built.hex);
+    this.privateRival.claimed = n;
+    log(`private rival claimed ${n}.bitmap at ${this.privateRival.rate} sat/vB`);
   }
 
   private async fund(n: number): Promise<void> {
@@ -163,7 +314,9 @@ export class Dev {
   }
 
   private async tick(): Promise<void> {
-    if (!this.rival.enabled || this.busy || this.watcher.syncing) return;
+    if (this.busy || this.watcher.syncing) return;
+    if (this.privateRival.enabled) await this.privateClaim().catch((e) => log(`private rival: ${(e as Error).message}`));
+    if (!this.rival.enabled) return;
     this.busy = true;
     try {
       const live = this.watcher.tip.height + 1;

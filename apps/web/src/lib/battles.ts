@@ -7,21 +7,26 @@ import {
   type Coin,
   CONTENT_TYPE,
   commitFor,
+  commitTree,
   feeForRate,
   fromHex,
+  ghostBundle,
+  ghostDeposit,
+  type GhostPlan,
   LEGACY_CONTENT_TYPE,
   type Network,
   newSecret,
   type RevealParams,
   toHex,
 } from '@bitmap-battle/core';
-import { api, type Config, type Rates, type TableView } from './api.ts';
+import { api, type Config, type GhostRunView, type Rates, type TableView } from './api.ts';
 import { broadcast } from './broadcast.ts';
 import { player } from './player.ts';
 import { store } from './store.ts';
 import { deposit as walletDeposit, type Wallet } from './wallet.ts';
 
-export type Sent = { txid: string; hex: string; fee: number; vsize: number; rate: number; at: number };
+// n: the number a ghost run's claim was for (a ghost run claims a new one every block).
+export type Sent = { txid: string; hex: string; fee: number; vsize: number; rate: number; at: number; n?: number };
 
 export type Battle = {
   id: string;
@@ -37,6 +42,8 @@ export type Battle = {
   claims: Sent[];
   refund: Sent | null;
   outcome: 'won' | 'lost' | 'left' | null;
+  // A ghost run: claims for every number from first, sent through the server's private pool.
+  ghost?: GhostPlan & { started: boolean };
   winner: string | null;
   created: number;
 };
@@ -52,7 +59,7 @@ const find = (id: string) => {
   return b;
 };
 
-export const current = (all: Battle[], n: number) => all.find((b) => b.n === n && b.outcome === null) ?? null;
+export const current = (all: Battle[], n: number) => all.find((b) => b.n === n && b.outcome === null && !b.ghost) ?? null;
 
 export const isActive = (b: Battle) => b.outcome === null;
 
@@ -92,7 +99,7 @@ export async function fund(id: string, w: Wallet): Promise<void> {
   const b = find(id);
   const txid = await walletDeposit(w, b.commitAddress, b.budget);
   update(id, { deposit: { txid, vout: null, amount: b.budget } });
-  void api.funded(b.n, player, txid);
+  if (!b.ghost) void api.funded(b.n, player, txid);
 }
 
 export function rebudget(id: string, budget: number): void {
@@ -106,7 +113,7 @@ export async function locateDeposit(id: string): Promise<boolean> {
   if (b.deposit.vout !== null) return true;
   const tx = await api.tx(b.deposit.txid);
   if (!tx) return false;
-  const script = toHex(commitFor(fromHex(b.secret), b.n, b.network, typeOf(b)).script);
+  const script = toHex(commitOf(b).script);
   const out = tx.outputs.find((o) => o.script === script);
   if (!out) throw new Error('That transaction does not pay this battle.');
   update(id, { deposit: { txid: b.deposit.txid, vout: out.n, amount: out.value } });
@@ -117,7 +124,7 @@ export function remove(id: string): void {
   const b = find(id);
   if (b.deposit) throw new Error('This battle holds a deposit: take it back first.');
   battles.set((all) => all.filter((x) => x.id !== id));
-  void api.release(b.n, player);
+  void (b.ghost ? api.ghostRelease(player) : api.release(b.n, player));
 }
 
 function coinOf(b: Battle): Coin {
@@ -127,6 +134,12 @@ function coinOf(b: Battle): Coin {
 
 // Battles from before the shorter content type have none recorded; their deposit address commits to the old one.
 const typeOf = (b: Battle) => b.contentType ?? LEGACY_CONTENT_TYPE;
+
+// The deposit address of a battle: one number, or a ghost run's tree of numbers.
+function commitOf(b: Battle) {
+  const secret = fromHex(b.secret);
+  return b.ghost ? commitTree(secret, b.ghost.first, b.ghost.count, b.network) : commitFor(secret, b.n, b.network, typeOf(b));
+}
 
 function revealParams(b: Battle, cfg: Config): RevealParams {
   return {
@@ -212,7 +225,7 @@ export async function quoteTakeback(id: string, rates: Rates): Promise<Takeback>
   const spend = await api.outspend(b.deposit.txid, b.deposit.vout);
   const waiting = await pending(b);
   if (!spend.unspent && !waiting) return { ok: false, reason: 'The deposit is already spent.' };
-  const params = { secret: fromHex(b.secret), n: b.n, coin: coinOf(b), toAddress: b.payment, network: b.network, contentType: typeOf(b) };
+  const params = { secret: fromHex(b.secret), n: b.n, coin: coinOf(b), toAddress: b.payment, network: b.network, contentType: typeOf(b), commit: commitOf(b) };
   const { vsize } = buildRefund(params, 0, false);
   const wanted = Math.ceil((Math.max(rates.nextBlock, rates.minRelay) + step(rates)) * vsize);
   const fee = Math.max(wanted, waiting ? waiting.fee + Math.ceil(rates.incremental * vsize) + 1 : 0);
@@ -223,7 +236,10 @@ export async function quoteTakeback(id: string, rates: Rates): Promise<Takeback>
 
 export async function takeBack(id: string, fee: number, cfg: Config): Promise<void> {
   const b = find(id);
-  const built = buildRefund({ secret: fromHex(b.secret), n: b.n, coin: coinOf(b), toAddress: b.payment, network: b.network, contentType: typeOf(b) }, fee);
+  const built = buildRefund(
+    { secret: fromHex(b.secret), n: b.n, coin: coinOf(b), toAddress: b.payment, network: b.network, contentType: typeOf(b), commit: commitOf(b) },
+    fee,
+  );
   await broadcast(built.hex, built.txid, cfg);
   const sent: Sent = { txid: built.txid, hex: built.hex, fee: built.fee, vsize: built.vsize, rate: built.fee / built.vsize, at: Date.now() };
   update(id, (x) => ({ refund: sent, outcome: x.outcome ?? 'left' }));
@@ -268,9 +284,81 @@ export function restore(text: string): Battle {
   if (data.app !== 'bitmap-battle' || typeof data.secret !== 'string' || typeof data.n !== 'number') throw new Error('This is not a Bitmap Battle backup.');
   const { app: _app, version: _version, ...b } = data;
   const battle = b as Battle;
-  if (commitFor(fromHex(battle.secret), battle.n, battle.network, typeOf(battle)).address !== battle.commitAddress) {
+  if (commitOf(battle).address !== battle.commitAddress) {
     throw new Error('The backup does not match its own deposit address.');
   }
   battles.set((all) => [battle, ...all.filter((x) => x.id !== battle.id)]);
   return battle;
+}
+
+// Ghost runs: one deposit chases the newest bitmap for `count` blocks. The browser signs a claim for every number and
+// fee rung, and the server sends the right one to the private pool each block, so the page can be closed.
+
+export const GHOST_REFUNDS = [1, 2, 4, 8, 16];
+
+export function ghostPlan(tip: number, start: number, extra: number, count: number): GhostPlan {
+  return { first: tip + 2, count, start, extra };
+}
+
+export const ghostBudget = (plan: GhostPlan, w: Wallet, cfg: Config) => ghostDeposit(plan, cfg.network, w.ordinals.address, w.payment.address);
+
+export function joinGhost(plan: GhostPlan, w: Wallet, cfg: Config): Battle {
+  if (battles.get().some((b) => b.ghost && b.outcome === null)) throw new Error('You already have a ghost run.');
+  const secret = newSecret();
+  const b: Battle = {
+    id: `ghost-${Date.now().toString(36)}`,
+    network: cfg.network,
+    n: plan.first,
+    secret: toHex(secret),
+    payment: w.payment.address,
+    ordinals: w.ordinals.address,
+    budget: ghostBudget(plan, w, cfg),
+    commitAddress: commitTree(secret, plan.first, plan.count, cfg.network).address,
+    contentType: CONTENT_TYPE,
+    deposit: null,
+    claims: [],
+    refund: null,
+    outcome: null,
+    winner: null,
+    created: Date.now(),
+    ghost: { ...plan, started: false },
+  };
+  battles.set((all) => [b, ...all]);
+  return b;
+}
+
+// Signs every claim and refund of the run and hands them to the server, which starts the chase.
+export async function startGhost(id: string): Promise<void> {
+  const b = find(id);
+  if (!b.ghost || b.ghost.started) return;
+  const bundle = ghostBundle({
+    ...b.ghost,
+    secret: fromHex(b.secret),
+    network: b.network,
+    coin: coinOf(b),
+    ordinals: b.ordinals,
+    payment: b.payment,
+    refundRates: GHOST_REFUNDS,
+  });
+  await api.ghostStart(player, b.id, bundle);
+  update(id, (x) => ({ ghost: { ...x.ghost!, started: true } }));
+}
+
+export const stopGhost = (id: string) => api.ghostStop(player, id);
+
+// The server's view of the run, copied into the battle: the claims it sent, the refund, and how it ended.
+export async function syncGhost(id: string): Promise<GhostRunView | null> {
+  const b = find(id);
+  if (!b.ghost?.started) return null;
+  const run = await api.ghostRun(player, b.id).catch(() => null);
+  if (!run) return null;
+  const outcome = run.state === 'won' ? 'won' : run.state === 'lost' || run.state === 'gone' ? 'lost' : run.state === 'refunded' ? 'left' : null;
+  update(id, {
+    claims: run.sent.map((s) => ({ txid: s.txid, hex: '', fee: s.fee, vsize: s.vsize, rate: s.rate, at: s.at, n: s.n })),
+    refund: run.refund ? { txid: run.refund.txid, hex: '', fee: run.refund.fee, vsize: 0, rate: run.refund.rate, at: run.refund.at } : null,
+    outcome,
+    winner: run.winner,
+    n: run.sent.at(-1)?.n ?? b.n,
+  });
+  return run;
 }

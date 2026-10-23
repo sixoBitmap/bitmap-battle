@@ -5,7 +5,7 @@ claim it with one tap and outbid with another. The first valid claim in a block 
 of bitmap blocks.
 
 Players sign and broadcast everything themselves, in their own browser and wallet. The server only watches its
-own Bitcoin node and shows the live battle. Every view fits one phone screen with no scrolling, from a small
+own Bitcoin node and shows the live battle (and, for a ghost run, sends the claims the player already signed). Every view fits one phone screen with no scrolling, from a small
 iPhone SE inside the Xverse browser up to a tablet.
 
 | The arena | In the fight | Rules | You won |
@@ -49,6 +49,23 @@ already spends (`max 174k` sat/vB; `all in` when nothing is left). The app tells
   its own node and keeps them in `data/<network>/ghosts.json`.
 - 👤 **Minter**: everyone else, including Bitmap Battle players.
 
+**👻 Ghost mint** (regtest for now). Some minters send their claims straight to a mining pool's private mempool,
+where nobody can see or outbid them before the block. A ghost run does the same:
+
+1. Pick a start fee, how far it may rise, and how many blocks to chase. The deposit is computed for you.
+2. Your wallet signs the deposit once. It goes to one Taproot address whose tree holds a claim for every number
+   of the run.
+3. Your browser signs every claim of the run at a ladder of fees, plus refunds, and hands them to the server. The
+   server checks each one pays only your addresses.
+4. Every block, the server sends the claim for the newest bitmap to the private pool, checking the pool's fee floor
+   first. Because it spends the same deposit, it replaces the claim from the block before, so only the claim
+   that finally gets mined pays a fee. You can close the page.
+5. It ends when a claim wins, when you stop, or when the chase is over: then your deposit comes back by a public
+   refund.
+
+On regtest the server holds a stand-in private pool, and the 🧪 test panel can mine a "MARA block" and run a
+private rival. `scripts/e2e-ghost.ts` plays whole runs against it.
+
 **Past battles** are in the hall of fame. Tap a champion to see every claim in that block, the fee each one paid,
 and a mempool link for each.
 
@@ -64,7 +81,7 @@ mempool.space. Tap a shortened address anywhere and the cube reads it out in ful
 | Part | Does | Never does |
 | --- | --- | --- |
 | Your phone (browser + Xverse) | Makes the battle key, builds and signs every claim, sends it to public relays ([mempool.space](https://mempool.space), [blockstream.info](https://blockstream.info)) | Sends keys anywhere |
-| The server | Reads its own Bitcoin Core: blocks, mempool, fee rates, cluster ranks. Holds one seat per table so app players never fight each other. Sends battle alerts | Holds keys or coins, broadcasts transactions |
+| The server | Reads its own Bitcoin Core: blocks, mempool, fee rates, cluster ranks. Holds one seat per table so app players never fight each other. Sends battle alerts. For a ghost run, sends the claims and refund the player already signed | Holds keys or coins, changes or signs transactions |
 
 If the server disappears, nobody's coins are at risk. Each battle's key stays in the browser, and "My battles" can
 download a backup that any copy of this app can use to take the deposit back.
@@ -218,6 +235,7 @@ scripts         regtest launcher, end-to-end test, icon generator
   (its quote counts this). **Prepare** for the next battle (🛡️ on the arena) and the deposit confirms before the fight, so the claim stands alone.
 - **One app player per bitmap.** This is a rule of this server, not of Bitcoin. Other copies of the app, and
   everyone else, can still bid.
-- **Adults only (18+).** This is a fee auction between players. There is no house and there are no odds.
+- **Adults only (18+).** This is a fee auction between players. There is no house. A ghost run's chance depends on how often
+  its private pool mines a block.
 
 Not affiliated with Xverse, ord or the bitmap community. MIT licensed: see [LICENSE](LICENSE).

@@ -395,6 +395,11 @@ export function Table({ n }: { n: number }) {
                 </small>
               )}
             </button>
+            {config.privatePool && kind === 'live' && (
+              <a className="ghost-entry" href="#/ghost">
+                👻 Ghost mint (private)
+              </a>
+            )}
           </>
         )}
 

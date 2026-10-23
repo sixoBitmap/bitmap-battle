@@ -4,6 +4,7 @@ import { outputScript } from '@bitmap-battle/core';
 import { Bitmaps } from './bitmaps.ts';
 import { loadConfig } from './config.ts';
 import { Dev } from './dev.ts';
+import { GhostRuns } from './ghostrun.ts';
 import { Ghosts } from './ghosts.ts';
 import { serve } from './http.ts';
 import { log } from './log.ts';
@@ -44,8 +45,13 @@ if (cfg.tipAddress) {
   }
 }
 
-const state = () => buildState(cfg.network, watcher, bitmaps, seats, ghosts);
-const server = serve(cfg, { rpc, watcher, bitmaps, seats, push, dev, ghosts, state });
+if (dev) watcher.poolHint = (hash) => dev.poolOf(hash);
+const pool = cfg.slipstream === 'dev' ? (dev?.pool ?? null) : null;
+const runs = new GhostRuns(join(cfg.dataDir, 'ghost-runs.json'), { rpc, watcher, bitmaps, pool, network: cfg.network });
+watcher.on('tip', (t: { height: number }) => void runs.step(t.height));
+
+const state = () => buildState(cfg.network, watcher, bitmaps, seats, ghosts, runs);
+const server = serve(cfg, { rpc, watcher, bitmaps, seats, push, dev, ghosts, runs, state });
 
 const announced = new Set<number>();
 watcher.on('change', () => {
@@ -65,11 +71,13 @@ watcher.on('change', () => {
 });
 watcher.on('block', (block: BlockInfo) => {
   server.publishBlock(block);
+  void runs.step(block.height);
   const won = block.claims.filter((c) => c.valid).map((c) => c.n);
   log(`block ${block.height.toLocaleString()}: ${block.claims.length} claim(s)${won.length ? `, won: ${won.join(', ')}` : ''}`);
 });
 
 void watcher.run();
+void watcher.watchTip();
 log(`Bitmap Battle (${cfg.network}) on http://${cfg.host === '0.0.0.0' ? 'localhost' : cfg.host}:${cfg.port}`);
 log(`node ${cfg.rpcUrl}, login ${cfg.rpcAuthSource}${cfg.bitmapDb ? `, bitmap index ${cfg.bitmapDb}` : ''}`);
 log(cfg.tipAddress ? `tips go to ${cfg.tipAddress}` : 'no tip address set: the tip cube and tip buttons are hidden');

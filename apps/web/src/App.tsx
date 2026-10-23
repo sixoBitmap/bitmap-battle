@@ -4,6 +4,7 @@ import { Battles } from './components/Battles.tsx';
 import { BattleLog } from './components/BattleLog.tsx';
 import { Cube } from './components/Cube.tsx';
 import { champion, Fame } from './components/Fame.tsx';
+import { Ghost } from './components/Ghost.tsx';
 import { DevPanel } from './components/DevPanel.tsx';
 import { Rules } from './components/How.tsx';
 import { RiskGate } from './components/RiskGate.tsx';
@@ -94,11 +95,13 @@ export function App() {
   const route = useRoute();
   const { config, state, connected } = live.use();
   const all = battles.use();
-  const active = all.find((b) => b.outcome === null) ?? null;
+  const active = all.find((b) => b.outcome === null && !b.ghost) ?? null;
+  const chasing = all.some((b) => b.ghost && b.outcome === null);
   const [demo, setDemo] = useState(true);
   const ready = state && config && state.tip.height >= 0;
   const purse = route.page === 'me';
   const fame = route.page === 'fame';
+  const ghost = route.page === 'ghost';
   const n = route.page === 'table' ? route.n : (active?.n ?? (state ? state.tip.height + 1 : 0));
 
   useEffect(() => {
@@ -160,6 +163,7 @@ export function App() {
               </a>
               <a href="#/me" className={purse ? 'on' : ''}>
                 Purse{active ? ' ⚔' : ''}
+                {chasing ? ' 👻' : ''}
               </a>
               <a href="#/fame" className={`fame-tab ${fame ? 'on' : ''}`}>
                 Fame
@@ -174,6 +178,8 @@ export function App() {
               <Battles />
             ) : fame ? (
               <Fame />
+            ) : ghost ? (
+              <Ghost />
             ) : (
               <Table key={n} n={n} />
             )}

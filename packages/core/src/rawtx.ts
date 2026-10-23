@@ -1,9 +1,12 @@
 import { concatBytes, dsha256, latin1, toHex } from './bytes.ts';
 
+export type TxIn = { txid: string; vout: number; sequence: number };
 export type TxOut = { value: number; script: Uint8Array };
 
 export type RawTx = {
+  inputs: TxIn[];
   outputs: TxOut[];
+  locktime: number;
   witnesses: Uint8Array[][];
   size: number;
   weight: number;
@@ -27,10 +30,17 @@ export function readTx(b: Uint8Array, start: number): [RawTx, number] {
   const bodyStart = i;
   let inputs: number, outputs: number, len: number;
   [inputs, i] = varint(b, i);
+  const ins: TxIn[] = [];
   for (let k = 0; k < inputs; k++) {
+    if (i + 36 > b.length) throw new Error('truncated transaction');
+    const txid = toHex(b.slice(i, i + 32).reverse());
+    const vout = new DataView(b.buffer, b.byteOffset + i + 32, 4).getUint32(0, true);
     i += 36;
     [len, i] = varint(b, i);
-    i += len + 4;
+    i += len;
+    if (i + 4 > b.length) throw new Error('truncated transaction');
+    ins.push({ txid, vout, sequence: new DataView(b.buffer, b.byteOffset + i, 4).getUint32(0, true) });
+    i += 4;
   }
   [outputs, i] = varint(b, i);
   const outs: TxOut[] = [];
@@ -60,6 +70,7 @@ export function readTx(b: Uint8Array, start: number): [RawTx, number] {
   const lockStart = i;
   i += 4;
   if (i > b.length) throw new Error('truncated transaction');
+  const locktime = new DataView(b.buffer, b.byteOffset + lockStart, 4).getUint32(0, true);
   const baseSize = 4 + (bodyEnd - bodyStart) + 4;
   const size = i - start;
   let id: string | undefined;
@@ -67,7 +78,7 @@ export function readTx(b: Uint8Array, start: number): [RawTx, number] {
     (id ??= toHex(
       dsha256(concatBytes(b.subarray(start, start + 4), b.subarray(bodyStart, bodyEnd), b.subarray(lockStart, i))).reverse(),
     ));
-  return [{ outputs: outs, witnesses, size, weight: baseSize * 3 + size, txid }, i];
+  return [{ inputs: ins, outputs: outs, locktime, witnesses, size, weight: baseSize * 3 + size, txid }, i];
 }
 
 export function parseTx(raw: Uint8Array): RawTx {

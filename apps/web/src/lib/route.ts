@@ -1,12 +1,13 @@
 import { useSyncExternalStore } from 'react';
 
-export type Route = { page: 'lobby' } | { page: 'table'; n: number } | { page: 'me' } | { page: 'fame' } | { page: 'how' } | { page: 'volcano' };
+export type Route = { page: 'lobby' } | { page: 'table'; n: number } | { page: 'me' } | { page: 'fame' } | { page: 'ghost' } | { page: 'how' } | { page: 'volcano' };
 
 function parse(hash: string): Route {
   const m = hash.match(/^#\/table\/(\d{1,8})$/);
   if (m) return { page: 'table', n: Number(m[1]) };
   if (hash === '#/me') return { page: 'me' };
   if (hash === '#/fame') return { page: 'fame' };
+  if (hash === '#/ghost') return { page: 'ghost' };
   if (hash === '#/how') return { page: 'how' };
   if (hash === '#/volcano') return { page: 'volcano' };
   return { page: 'lobby' };

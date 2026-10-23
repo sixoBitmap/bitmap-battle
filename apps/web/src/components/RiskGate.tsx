@@ -26,7 +26,7 @@ export function RiskGate() {
             budget you deposit.
           </li>
           <li>
-            <b>Adults only (18+).</b> This is a fee auction, not a casino: there are no odds and no house.
+            <b>Adults only (18+).</b> This is a fee auction, not a casino: there is no house.
           </li>
         </ul>
         <label className="check">

@@ -87,6 +87,11 @@ export type Coin = { txid: string; vout: number; amount: number };
 
 export type Built = { hex: string; txid: string; vsize: number; fee: number; change: number };
 
+// What a spend needs from the deposit address. A single-number deposit derives it from the key and n; a ghost run's
+// deposit holds many leaves and passes the one it spends.
+export type LeafCommit = { script: Uint8Array; leaf: Uint8Array; controlBlock: Uint8Array };
+export type KeyCommit = { script: Uint8Array; internalKey: Uint8Array; merkleRoot: Uint8Array };
+
 export type RevealParams = {
   secret: Uint8Array;
   n: number;
@@ -96,6 +101,7 @@ export type RevealParams = {
   network: Network;
   postage?: number;
   contentType?: string;
+  commit?: LeafCommit;
 };
 
 function finish(tx: Transaction, coin: Coin, change: number): Built {
@@ -108,7 +114,7 @@ function finish(tx: Transaction, coin: Coin, change: number): Built {
 // back to the payment address. Locktime n-1 keeps it out of any block before n, where the claim would not count.
 export function buildReveal(p: RevealParams, fee: number, sign = true): Built {
   const network = btcNetwork(p.network);
-  const commit = commitFor(p.secret, p.n, p.network, p.contentType);
+  const commit = p.commit ?? commitFor(p.secret, p.n, p.network, p.contentType);
   const postage = p.postage ?? POSTAGE;
   const tx = new Transaction({ version: 2, lockTime: Math.max(0, p.n - 1), allowUnknownOutputs: true });
   tx.addInput({
@@ -134,11 +140,19 @@ export function buildReveal(p: RevealParams, fee: number, sign = true): Built {
   return finish(tx, p.coin, change);
 }
 
-export type RefundParams = { secret: Uint8Array; n: number; coin: Coin; toAddress: string; network: Network; contentType?: string };
+export type RefundParams = {
+  secret: Uint8Array;
+  n: number;
+  coin: Coin;
+  toAddress: string;
+  network: Network;
+  contentType?: string;
+  commit?: KeyCommit;
+};
 
 // Takes the whole coin back by the key path: nothing is inscribed.
 export function buildRefund(p: RefundParams, fee: number, sign = true): Built {
-  const commit = commitFor(p.secret, p.n, p.network, p.contentType);
+  const commit = p.commit ?? commitFor(p.secret, p.n, p.network, p.contentType);
   const tx = new Transaction({ version: 2, lockTime: 0 });
   tx.addInput({
     txid: p.coin.txid,

@@ -1,12 +1,13 @@
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { extname, join, normalize, sep } from 'node:path';
-import { type ClusterTx, POSTAGE } from '@bitmap-battle/core';
+import { type ClusterTx, type GhostBundle, POSTAGE } from '@bitmap-battle/core';
 import { WebSocket, WebSocketServer } from 'ws';
 import type { Bitmaps } from './bitmaps.ts';
 import type { Config } from './config.ts';
 import type { Dev } from './dev.ts';
-import type { Ghosts } from './ghosts.ts';
+import { type Ghosts, isPrivatePool } from './ghosts.ts';
+import type { GhostRuns } from './ghostrun.ts';
 import { log } from './log.ts';
 import type { Push } from './push.ts';
 import { RpcError, type Rpc } from './rpc.ts';
@@ -78,15 +79,16 @@ type Deps = {
   push: Push;
   dev: Dev | null;
   ghosts: Ghosts;
+  runs: GhostRuns;
   state: () => PublicState;
 };
 
-async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
+async function body(req: IncomingMessage, limit = 64 * 1024): Promise<Record<string, unknown>> {
   let size = 0;
   const parts: Buffer[] = [];
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > 64 * 1024) throw new HttpError(413, 'request too large');
+    if (size > limit) throw new HttpError(413, 'request too large');
     parts.push(chunk);
   }
   try {
@@ -224,6 +226,7 @@ export function serve(cfg: Config, deps: Deps) {
     dev: dev !== null,
     tipAddress: cfg.tipAddress,
     tipAmounts: cfg.tipAmounts,
+    privatePool: deps.runs.poolName,
   });
 
   async function api(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
@@ -277,6 +280,52 @@ export function serve(cfg: Config, deps: Deps) {
         return send(res, 200, { ok: seats.fund(n, b.player, b.txid) });
       }
     }
+    if (method === 'GET' && path === '/api/private') {
+      if (!deps.runs.enabled) return send(res, 200, { pool: null, floor: null, recent: [] });
+      const floor = await deps.runs.floor().catch(() => null);
+      const recent: { n: number; block: number; pool: string | null; rate: number | null; won: boolean }[] = [];
+      for (const b of [...watcher.blocks].reverse()) {
+        if (!isPrivatePool(b.pool)) continue;
+        for (const c of b.claims) {
+          if (!c.unseen || recent.length >= 12) continue;
+          const { fee, vsize } = await paid(c.txid, b);
+          recent.push({ n: c.n, block: b.height, pool: b.pool, rate: fee === null ? null : Math.round((fee / vsize) * 100) / 100, won: c.valid === true });
+        }
+      }
+      return send(res, 200, { pool: deps.runs.poolName, floor, recent });
+    }
+    if (method === 'GET' && (m = path.match(/^\/api\/ghost\/run\/([A-Za-z0-9_-]{4,64})$/))) {
+      const player = new URL(req.url ?? '', 'http://x').searchParams.get('player');
+      const run = validPlayer(player) ? deps.runs.get(player, m[1]) : null;
+      return run ? send(res, 200, run) : send(res, 404, { error: 'no such ghost run' });
+    }
+    if (method === 'POST' && path.startsWith('/api/ghost/')) {
+      const b = await body(req, 2 * 1024 * 1024);
+      if (!validPlayer(b.player)) throw new HttpError(400, 'bad player id');
+      if (path === '/api/ghost/seat') {
+        if (!deps.runs.reserve(b.player)) throw new HttpError(409, deps.runs.enabled ? 'another ghost run is already chasing on this server' : 'this server has no private pool');
+        return send(res, 200, { ok: true });
+      }
+      if (path === '/api/ghost/release') {
+        deps.runs.release(b.player);
+        return send(res, 200, { ok: true });
+      }
+      if (typeof b.id !== 'string' || !/^[A-Za-z0-9_-]{4,64}$/.test(b.id)) throw new HttpError(400, 'bad run id');
+      if (path === '/api/ghost/start') {
+        try {
+          return send(res, 200, await deps.runs.start(b.player, b.id, b.bundle as GhostBundle));
+        } catch (e) {
+          throw new HttpError(400, (e as Error).message);
+        }
+      }
+      if (path === '/api/ghost/stop') {
+        try {
+          return send(res, 200, deps.runs.stop(b.player, b.id));
+        } catch (e) {
+          throw new HttpError(404, (e as Error).message);
+        }
+      }
+    }
     if (method === 'POST' && path === '/api/push/subscribe') {
       const b = await body(req);
       if (!push.subscribe(b.subscription)) throw new HttpError(400, 'bad push subscription');
@@ -314,6 +363,13 @@ export function serve(cfg: Config, deps: Deps) {
     }
     if (path === '/dev/automine') {
       dev.setAutomine(Number(b.seconds) || 0);
+      return send(res, 200, dev.status());
+    }
+    if (path === '/dev/mine-mara') return send(res, 200, { hash: await dev.mineMara() });
+    if (path === '/dev/private') {
+      if (Number(b.floor) > 0) dev.privateFloor = Number(b.floor);
+      if (typeof b.rival === 'boolean') dev.privateRival.enabled = b.rival;
+      if (Number(b.rivalRate) > 0) dev.privateRival.rate = Number(b.rivalRate);
       return send(res, 200, dev.status());
     }
     throw new HttpError(404, 'no such dev API');

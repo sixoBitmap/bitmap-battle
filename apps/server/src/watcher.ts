@@ -70,6 +70,9 @@ export class Watcher extends EventEmitter {
   private readonly known = new Set<string>();
   // Claim transactions this node had in its mempool, so a block can tell which of its claims came out of nowhere.
   private readonly seenClaims = new Set<string>();
+  // Names the pool of a block when its coinbase cannot (regtest's stand-in for a private pool).
+  poolHint: ((hash: string) => string | null) | null = null;
+  private lastTip = '';
   private ratesAt = 0;
   private stopped = false;
 
@@ -81,6 +84,22 @@ export class Watcher extends EventEmitter {
     private readonly ghosts: Ghosts,
   ) {
     super();
+  }
+
+  // A quick look for a new tip, much more often than the full step: a ghost run swaps its claim within a second.
+  async watchTip(everyMs = 300): Promise<void> {
+    while (!this.stopped) {
+      try {
+        const best = await this.rpc.call<string>('getbestblockhash');
+        if (best !== this.lastTip) {
+          const first = this.lastTip === '';
+          this.lastTip = best;
+          const { height } = await this.rpc.call<{ height: number }>('getblockheader', best);
+          if (!first) this.emit('tip', { height, hash: best });
+        }
+      } catch {}
+      await sleep(everyMs);
+    }
   }
 
   async run(): Promise<void> {
@@ -119,7 +138,7 @@ export class Watcher extends EventEmitter {
     const hash = await this.rpc.call<string>('getblockhash', height);
     const raw = await this.rpc.block(hash);
     const time = new DataView(raw.buffer, raw.byteOffset + 68, 4).getUint32(0, true);
-    return { hash, time, pool: poolOf(coinbaseText(raw)), ...claimsInBlock(raw, height) };
+    return { hash, time, pool: this.poolHint?.(hash) ?? poolOf(coinbaseText(raw)), ...claimsInBlock(raw, height) };
   }
 
   private view(claims: Judged[], live: boolean): BlockClaimView[] {

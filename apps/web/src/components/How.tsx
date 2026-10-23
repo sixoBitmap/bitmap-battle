@@ -9,16 +9,17 @@ const SECTIONS = {
       ['🟧', 'MINT', 'One tap sends your claim, signed in this browser with the battle key.'],
       ['⬆️', 'RAISE', 'Outbid? One tap pays just enough to lead again.'],
       ['🏆', 'Victory', 'Mined first, the bitmap goes to your ordinals address.'],
+      ['👻', 'Ghost mint', 'Your claims wait privately at a mining pool and chase the newest bitmap every block. Only the one mined pays.'],
     ],
   },
   safety: {
     label: 'Safety',
     facts: [
-      ['🔑', 'Your keys', 'You sign everything yourself. The server never holds keys or coins and never sends your transactions.'],
+      ['🔑', 'Your keys', 'You sign everything yourself. The server never holds keys or coins; it only sends the claims you signed for a ghost run.'],
       ['📜', 'Backups', 'Each battle key lives in this browser. Save a backup from your purse while coins are inside.'],
       ['💸', 'Fees', 'Real bitcoin. A losing claim usually still pays its fee.'],
       ['🤖', 'Bots', 'They react in milliseconds and win many battles.'],
-      ['🔞', '18+', 'A fee auction between players. No house, no odds.'],
+      ['🔞', '18+', 'A fee auction between players, with no house.'],
     ],
   },
   rules: {
