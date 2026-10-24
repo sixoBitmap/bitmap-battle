@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { runCommand } from '../lib/commands.ts';
 import { Hopper } from '../lib/hopper.ts';
 import { line, type Moment, type Mood, mood, onMoment, onSpeak } from '../lib/mood.ts';
 import { sfx } from '../lib/sound.ts';
@@ -22,6 +23,9 @@ export function Cube({ tips }: { tips: boolean }) {
   const current = mood.use();
   const lastLine = useRef('');
   const hide = useRef(0);
+  const [asking, setAsking] = useState(false);
+  const press = useRef(0);
+  const held = useRef(false);
 
   const say = (key: Parameters<typeof line>[0], exact?: string) => {
     const text = exact ?? line(key, lastLine.current);
@@ -83,7 +87,37 @@ export function Cube({ tips }: { tips: boolean }) {
     setTimeout(() => setHearts((all) => all.filter((x) => x !== id)), 1000);
   };
 
+  // A right-click (or a long press on a phone) turns the bubble into a field for a secret word; the word works as soon
+  // as it is typed, with nothing to submit.
+  const ask = () => {
+    clearTimeout(hide.current);
+    setSaid(null);
+    const x = wrap.current?.getBoundingClientRect().left ?? 200;
+    setSide(x < 110 ? 'left' : x > window.innerWidth - 130 ? 'right' : 'mid');
+    setAsking(true);
+    hopper.current?.pause(true);
+  };
+
+  const stopAsking = () => {
+    setAsking(false);
+    hopper.current?.pause(false);
+  };
+
+  const hold = (e: React.PointerEvent) => {
+    if (e.pointerType === 'mouse') return;
+    held.current = false;
+    clearTimeout(press.current);
+    press.current = window.setTimeout(() => {
+      held.current = true;
+      ask();
+    }, 550);
+  };
+
   const tap = () => {
+    if (held.current) {
+      held.current = false;
+      return;
+    }
     sfx.coin();
     burst();
     hopper.current?.cheer();
@@ -101,12 +135,43 @@ export function Cube({ tips }: { tips: boolean }) {
   return (
     <>
       <div className="cube-wrap" ref={wrap}>
-        {said && (
-          <div key={said.id} className={`bubble ${side}`} role="status">
-            {said.text}
+        {asking ? (
+          <div className={`bubble ${side} ask`}>
+            <input
+              autoFocus
+              aria-label="Say the word"
+              placeholder="psst…"
+              onChange={(e) => {
+                if (runCommand(e.target.value)) {
+                  sfx.coin();
+                  stopAsking();
+                }
+              }}
+              onKeyDown={(e) => e.key === 'Escape' && stopAsking()}
+              onBlur={stopAsking}
+            />
           </div>
+        ) : (
+          said && (
+            <div key={said.id} className={`bubble ${side}`} role="status">
+              {said.text}
+            </div>
+          )
         )}
-        <button className="cube" ref={body} onClick={tap} aria-label={tips ? 'Send a tip' : 'Say hi'}>
+        <button
+          className="cube"
+          ref={body}
+          onClick={tap}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            ask();
+          }}
+          onPointerDown={hold}
+          onPointerUp={() => clearTimeout(press.current)}
+          onPointerLeave={() => clearTimeout(press.current)}
+          onPointerCancel={() => clearTimeout(press.current)}
+          aria-label={tips ? 'Send a tip' : 'Say hi'}
+        >
           <i className="eye l" />
           <i className="eye r" />
         </button>

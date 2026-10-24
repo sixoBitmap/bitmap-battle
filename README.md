@@ -50,7 +50,9 @@ already spends (`max 174k` sat/vB; `all in` when nothing is left). The app tells
 - 👤 **Minter**: everyone else, including Bitmap Battle players.
 
 **👻 Ghost mint.** Some minters send their claims straight to a mining pool's private mempool,
-where nobody can see or outbid them before the block. A ghost run does the same:
+where nobody can see or outbid them before the block. A ghost run does the same. It is a secret: right-click the
+orange cube (or hold it on a phone) and type `ghost` into its bubble. More secret words can be added in
+`apps/web/src/lib/commands.ts`.
 
 1. Pick a start fee, how far it may rise, and how many blocks to chase. The deposit is computed for you.
 2. Your wallet signs the deposit once. It goes to one Taproot address whose tree holds a claim for every number

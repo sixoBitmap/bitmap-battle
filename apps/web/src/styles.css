@@ -1379,15 +1379,6 @@ a.fame span {
 
 /* ghost mint */
 
-.ghost-entry {
-  flex: none;
-  align-self: center;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--ink-2);
-  text-decoration: underline;
-}
-
 .ghost-page {
   gap: clamp(6px, 1.2dvh, 10px);
   overflow-y: auto;
@@ -1714,6 +1705,8 @@ input.pick {
   display: block;
   width: 22px;
   height: 22px;
+  -webkit-touch-callout: none;
+  user-select: none;
   padding: 0;
   border-radius: 4px;
   pointer-events: auto;
@@ -1802,6 +1795,22 @@ input.pick {
   border-right: 2px solid var(--wood);
   border-bottom: 2px solid var(--wood);
   transform: rotate(45deg);
+}
+
+.bubble.ask {
+  padding: 4px 8px;
+  pointer-events: auto;
+}
+
+.bubble.ask input {
+  width: 110px;
+  padding: 2px 0;
+  border: 0;
+  border-bottom: 1px dotted var(--ink-2);
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  outline: none;
 }
 
 .bubble.mid {
