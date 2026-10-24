@@ -327,12 +327,25 @@ export function joinGhost(plan: GhostPlan, w: Wallet, cfg: Config): Battle {
   return b;
 }
 
-// Signs every claim and refund of the run and hands them to the server, which starts the chase.
+const starting = new Set<string>();
+
+// Signs every claim and refund of the run and hands them to the server, which starts the chase. Only once: a second
+// call while the first waits for the server does nothing.
 export async function startGhost(id: string): Promise<void> {
   const b = find(id);
-  if (!b.ghost || b.ghost.started) return;
+  if (!b.ghost || b.ghost.started || starting.has(id)) return;
+  starting.add(id);
+  try {
+    await sendBundle(b);
+    update(id, (x) => ({ ghost: { ...x.ghost!, started: true } }));
+  } finally {
+    starting.delete(id);
+  }
+}
+
+async function sendBundle(b: Battle): Promise<void> {
   const bundle = ghostBundle({
-    ...b.ghost,
+    ...b.ghost!,
     secret: fromHex(b.secret),
     network: b.network,
     coin: coinOf(b),
@@ -340,8 +353,9 @@ export async function startGhost(id: string): Promise<void> {
     payment: b.payment,
     refundRates: GHOST_REFUNDS,
   });
-  await api.ghostStart(player, b.id, bundle);
-  update(id, (x) => ({ ghost: { ...x.ghost!, started: true } }));
+  await api.ghostStart(player, b.id, bundle).catch((e: Error) => {
+    if (!/already started/.test(e.message)) throw e;
+  });
 }
 
 export const stopGhost = (id: string) => api.ghostStop(player, id);

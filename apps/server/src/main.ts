@@ -56,6 +56,7 @@ const server = serve(cfg, { rpc, watcher, bitmaps, seats, push, dev, ghosts, run
 
 const announced = new Set<number>();
 watcher.on('change', () => {
+  void runs.step();
   seats.sweep((n) => n <= watcher.tip.height && bitmaps.claimed(n) !== null);
   server.publish();
   if (watcher.syncing) return;

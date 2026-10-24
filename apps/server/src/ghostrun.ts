@@ -49,6 +49,10 @@ export type RunView = {
 type Deps = { rpc: Rpc; watcher: Watcher; bitmaps: Bitmaps; pool: PrivatePool | null; network: Network };
 
 const SEAT_LIFE = 15 * 60_000;
+// A refused claim is tried again this often until the pool takes it or a new block moves the chase on.
+const RETRY_MS = 3000;
+// The pool's floor is read again at every new number, and in between at most this often.
+const FLOOR_LIFE = 60_000;
 const KEEP = 50;
 const OPEN: RunState[] = ['waiting', 'chasing'];
 
@@ -59,6 +63,8 @@ export class GhostRuns {
   private again = false;
   // The newest tip heard of: the quick tip watch reports it before the watcher has read the block.
   private height = -1;
+  private timer: NodeJS.Timeout | null = null;
+  private floorAt: { n: number; at: number; value: number } | null = null;
 
   constructor(
     private readonly file: string,
@@ -197,11 +203,17 @@ export class GhostRuns {
 
     const prev = run.sent.at(-1) ?? null;
     let floor: number;
-    try {
-      floor = await this.d.pool!.floor();
-    } catch (e) {
-      run.note = `could not read the private floor: ${(e as Error).message}`;
-      floor = prev?.rate ?? b.start;
+    const known = this.floorAt;
+    if (known && known.n === n && Date.now() - known.at < FLOOR_LIFE) {
+      floor = known.value;
+    } else {
+      try {
+        floor = await this.d.pool!.floor();
+        this.floorAt = { n, at: Date.now(), value: floor };
+      } catch (e) {
+        run.note = `could not read the private floor: ${(e as Error).message}`;
+        floor = prev?.rate ?? b.start;
+      }
     }
     const mine = new Set(run.sent.map((s) => s.txid));
     let top = 0;
@@ -220,8 +232,18 @@ export class GhostRuns {
       return this.takeBack(run);
     }
     if (prev?.txid === pick.txid) return;
-    if (!(await this.send(run, pick, usable))) return;
+    if (!(await this.send(run, pick, usable))) return this.later();
     if (n === last) await this.takeBack(run);
+  }
+
+  // Comes back soon after a refusal: the pool may not have the new block yet, or the network hiccuped.
+  private later(): void {
+    if (this.timer) return;
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      void this.step();
+    }, RETRY_MS);
+    this.timer.unref?.();
   }
 
   // Sends a claim to the private pool. When the pool wants a higher fee than expected (its replacement step may be
@@ -259,6 +281,7 @@ export class GhostRuns {
       log(`👻 ghost run ${tagOf(run.player)} ends: refund ${pick.txid.slice(0, 10)}… at ${pick.rate} sat/vB`);
     } catch (e) {
       run.note = `could not send the refund yet: ${(e as Error).message}`;
+      this.later();
     }
     this.save();
   }
