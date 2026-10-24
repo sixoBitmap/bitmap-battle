@@ -1,9 +1,9 @@
-import { commitFor, fromHex, ghostCosts } from '@bitmap-battle/core';
+import { commitFor, depositPsbt, fromHex, ghostCosts } from '@bitmap-battle/core';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { api, type GhostRunView, type PrivateInfo } from '../lib/api.ts';
 import { type Battle, battles, fund, GHOST_REFUNDS, ghostPlan, joinGhost, locateDeposit, remove, startGhost, stopGhost, syncGhost } from '../lib/battles.ts';
 import { num, rate, sats } from '../lib/format.ts';
-import { planBudgets } from '../lib/funds.ts';
+import { planBudgets, spendable } from '../lib/funds.ts';
 import { useCoins } from '../lib/hooks.ts';
 import { live, onBlock } from '../lib/live.ts';
 import { player } from '../lib/player.ts';
@@ -18,6 +18,10 @@ const Win = lazy(() => import('./Win.tsx'));
 const STARTS = [4, 5, 6];
 const EXTRAS = [1, 2, 3];
 const LENGTHS = [12, 24, 48];
+// Deposit fee rates to pick from (sat/vB). A ghost run waits for its deposit anyway, so it needs no rush.
+const DEPOSIT_RATES = [1, 2, 4];
+// A typical deposit's size, to price it before the wallet's coins are known.
+const DEPOSIT_VSIZE = 153;
 // The share of blocks the private pool mines (MARA: about one in twenty last week).
 const PRIVATE_SHARE = 0.05;
 
@@ -48,6 +52,8 @@ function GhostSetup() {
   const [extra, setExtra] = useState(3);
   const [count, setCount] = useState(24);
   const [busy, setBusy] = useState(false);
+  const [feeChoice, setFeeChoice] = useState<number | null>(null);
+  const [feeCustom, setFeeCustom] = useState('');
   const [coins] = useCoins(w, config);
 
   useEffect(() => {
@@ -82,15 +88,32 @@ function GhostSetup() {
   const refund = costs ? Math.ceil(refundRate * costs.refundSize) : null;
   const about = w ? '' : '≈ ';
   const funds = w && coins && coins !== 'error' ? planBudgets(w, coins, state.rates, config.postage) : null;
+  const depositRate = feeCustom ? Number(feeCustom) : (feeChoice ?? DEPOSIT_RATES.find((r) => r >= state.rates.nextBlock) ?? DEPOSIT_RATES.at(-1)!);
+  const ownCoins = w && w.kind === 'xverse' && coins && coins !== 'error' ? spendable(coins.utxos) : null;
+  let depositPlan: { fee: number; error?: undefined } | { fee?: undefined; error: string } | null = null;
+  if (ownCoins && deposit !== null && depositRate > 0) {
+    try {
+      // Sized against a Taproot output like the run's deposit address, which is made only when the run starts.
+      depositPlan = { fee: depositPsbt({ coins: ownCoins, to: sample(net).ordinals, amount: deposit, payer: w!.payment, rate: depositRate, network: config.network }).fee };
+    } catch (e) {
+      depositPlan = { error: (e as Error).message };
+    }
+  }
+  const depositFee = depositPlan?.fee ?? Math.ceil(depositRate * DEPOSIT_VSIZE);
   const problem = !(startRate > 0)
     ? 'Pick a start fee'
+    : !(depositRate > 0)
+      ? 'Pick a deposit fee'
+      : depositPlan?.error
+        ? `Your purse needs ${sats((deposit ?? 0) + depositFee)} in confirmed coins`
     : floor !== null && startRate < floor
       ? `The private floor is ${floor} sat/vB right now`
       : state.ghostRun
         ? 'Another ghost run is chasing on this server'
-        : funds && deposit !== null && deposit > funds.spendable
+        : !ownCoins && funds && deposit !== null && deposit > funds.spendable
           ? `Your purse needs ${sats(deposit)} confirmed`
           : null;
+  const slow = depositRate < state.rates.nextBlock;
 
   const begin = () => {
     if (!w) {
@@ -103,7 +126,8 @@ function GhostSetup() {
       await api.ghostSeat(player);
       const b = joinGhost(plan, w, config);
       try {
-        await fund(b.id, w);
+        const at = w.kind === 'test' ? { rate: depositRate, coins: [], cfg: config } : ownCoins ? { rate: depositRate, coins: ownCoins, cfg: config } : undefined;
+        await fund(b.id, w, at);
       } catch (e) {
         remove(b.id);
         throw e;
@@ -121,8 +145,7 @@ function GhostSetup() {
     <div className="page ghost-page">
       <h2>👻 Ghost mint</h2>
       <p className="muted">
-        Claims go privately to {config.privatePool} and chase the newest bitmap every block, even with this page closed. Only the claim that
-        gets mined pays.
+        Your claims wait privately at {config.privatePool} for the newest bitmap, block after block. Only the one mined pays.
       </p>
       <div className="ghost-facts">
         <span>
@@ -158,6 +181,15 @@ function GhostSetup() {
             </button>
           ))}
         </div>
+        <span title="The network fee of the deposit itself, paid once">Deposit fee</span>
+        <div>
+          {DEPOSIT_RATES.map((r) => (
+            <button key={r} type="button" className={`pick ${!feeCustom && depositRate === r ? 'on' : ''}`} onClick={() => (setFeeChoice(r), setFeeCustom(''))}>
+              {r}
+            </button>
+          ))}
+          <input className="pick" inputMode="decimal" placeholder="other" value={feeCustom} onChange={(e) => setFeeCustom(e.target.value.replace(/[^0-9.]/g, ''))} />
+        </div>
       </div>
       {costs && refund !== null && (
         <dl className="ghost-costs">
@@ -167,24 +199,28 @@ function GhostSetup() {
               {about}
               {sats(costs.deposit)}
             </b>{' '}
-            what you don't pay comes back
+            · comes back
+          </dd>
+          <dt>Deposit fee</dt>
+          <dd>
+            <b>
+              {depositPlan?.fee !== undefined ? '' : '≈ '}
+              {sats(depositFee)}
+            </b>{' '}
+            at {rate(depositRate)}
+            {slow && ' · may confirm late'}
           </dd>
           <dt>If you win</dt>
           <dd>
-            you pay{' '}
             <b>
               {about}
               {num(costs.first)}–{sats(costs.last)}
             </b>{' '}
-            · max {sats(costs.most)}
+            · max {num(costs.most)}
           </dd>
           <dt>If not</dt>
           <dd>
-            you pay{' '}
-            <b>
-              ≈ {sats(refund)}
-            </b>{' '}
-            to get it back
+            <b>≈ {sats(refund)}</b> for the refund
           </dd>
           <dt>Chance</dt>
           <dd>

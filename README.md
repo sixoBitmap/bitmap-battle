@@ -54,8 +54,9 @@ where nobody can see or outbid them before the block. A ghost run does the same.
 orange cube (or hold it on a phone) and type `ghost` into its bubble. More secret words can be added in
 `apps/web/src/lib/commands.ts`.
 
-1. Pick a start fee, how far it may rise, and how many blocks to chase. The deposit is computed for you.
-2. Your wallet signs the deposit once. It goes to one Taproot address whose tree holds a claim for every number
+1. Pick a start fee, how far it may rise, how many blocks to chase, and the deposit's own fee (1 sat/vB is
+   usually enough: the chase only starts once the deposit confirms). The deposit is computed for you.
+2. Your wallet signs the deposit once. The app builds it at the fee you picked; Xverse only signs it. It goes to one Taproot address whose tree holds a claim for every number
    of the run.
 3. Your browser signs every claim of the run at a ladder of fees, plus refunds, and hands them to the server. The
    server checks each one pays only your addresses.

@@ -1,4 +1,6 @@
+import { depositPsbt, finishPsbt, type SpendCoin } from '@bitmap-battle/core';
 import { type Config, get, post } from './api.ts';
+import { broadcast } from './broadcast.ts';
 import { store } from './store.ts';
 
 export type Account = { address: string; publicKey: string; addressType?: string };
@@ -57,6 +59,24 @@ export async function connect(cfg: Config): Promise<Wallet> {
 }
 
 export const disconnect = () => wallet.set(null);
+
+// A deposit at the fee rate the player picked: the app builds it from the payment address's coins, and the wallet
+// only signs it. The app still never sees the wallet's keys.
+export async function depositAt(w: Wallet, address: string, amount: number, rate: number, coins: SpendCoin[], cfg: Config): Promise<string> {
+  if (w.kind === 'test') return (await post<{ txid: string }>('/dev/send', { address, amount, feeRate: rate })).txid;
+  const plan = depositPsbt({ coins, to: address, amount, payer: w.payment, rate, network: cfg.network });
+  const { request } = await import('@sats-connect/core');
+  const res = await request('signPsbt', {
+    psbt: plan.psbt,
+    signInputs: { [w.payment.address]: Array.from({ length: plan.inputs }, (_, i) => i) },
+    broadcast: true,
+  });
+  if (res.status !== 'success') throw new Error(res.error?.message || 'The deposit was cancelled.');
+  if (res.result.txid) return res.result.txid;
+  const done = finishPsbt(res.result.psbt);
+  await broadcast(done.hex, done.txid, cfg);
+  return done.txid;
+}
 
 // The wallet sends the deposit itself: the app never sees its keys.
 export async function deposit(w: Wallet, address: string, amount: number): Promise<string> {

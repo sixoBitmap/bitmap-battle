@@ -1,7 +1,7 @@
 import { type Config, get, type Rates } from './api.ts';
 import { addressKind, type Wallet } from './wallet.ts';
 
-export type Utxo = { value: number; confirmed: boolean };
+export type Utxo = { value: number; confirmed: boolean; txid?: string; vout?: number };
 
 export type Funds = {
   confirmed: number;
@@ -32,13 +32,18 @@ export async function readCoins(address: string, cfg: Config): Promise<{ utxos: 
   const [utxos, fees] = await Promise.all([
     fetch(`${base}/address/${address}/utxo`).then((r) => {
       if (!r.ok) throw new Error('could not read the balance');
-      return r.json() as Promise<{ value: number; status: { confirmed: boolean } }[]>;
+      return r.json() as Promise<{ txid: string; vout: number; value: number; status: { confirmed: boolean } }[]>;
     }),
     fetch(`${base}/v1/fees/recommended`)
       .then((r) => (r.ok ? (r.json() as Promise<{ fastestFee: number }>) : { fastestFee: 0 }))
       .catch(() => ({ fastestFee: 0 })),
   ]);
-  return { utxos: utxos.map((u) => ({ value: u.value, confirmed: u.status.confirmed })), fastest: fees.fastestFee };
+  return { utxos: utxos.map((u) => ({ txid: u.txid, vout: u.vout, value: u.value, confirmed: u.status.confirmed })), fastest: fees.fastestFee };
+}
+
+// The coins a deposit may spend: confirmed, and not so small that they could carry an inscription.
+export function spendable(utxos: Utxo[]): { txid: string; vout: number; value: number }[] {
+  return utxos.filter((u) => u.confirmed && u.value > SMALL_COIN && u.txid).map((u) => ({ txid: u.txid!, vout: u.vout!, value: u.value }));
 }
 
 const roundDown = (x: number) => {

@@ -17,13 +17,14 @@ import {
   type Network,
   newSecret,
   type RevealParams,
+  type SpendCoin,
   toHex,
 } from '@bitmap-battle/core';
 import { api, type Config, type GhostRunView, type Rates, type TableView } from './api.ts';
 import { broadcast } from './broadcast.ts';
 import { player } from './player.ts';
 import { store } from './store.ts';
-import { deposit as walletDeposit, type Wallet } from './wallet.ts';
+import { depositAt, deposit as walletDeposit, type Wallet } from './wallet.ts';
 
 // n: the number a ghost run's claim was for (a ghost run claims a new one every block).
 export type Sent = { txid: string; hex: string; fee: number; vsize: number; rate: number; at: number; n?: number };
@@ -94,10 +95,11 @@ export function join(n: number, budget: number, w: Wallet, cfg: Config): Battle 
   return b;
 }
 
-// The battle is saved with its key before the wallet opens, so a closed tab never strands a deposit.
-export async function fund(id: string, w: Wallet): Promise<void> {
+// The battle is saved with its key before the wallet opens, so a closed tab never strands a deposit. With `at`, the
+// deposit pays the chosen fee rate from those coins; without it, the wallet picks its own rate.
+export async function fund(id: string, w: Wallet, at?: { rate: number; coins: SpendCoin[]; cfg: Config }): Promise<void> {
   const b = find(id);
-  const txid = await walletDeposit(w, b.commitAddress, b.budget);
+  const txid = at ? await depositAt(w, b.commitAddress, b.budget, at.rate, at.coins, at.cfg) : await walletDeposit(w, b.commitAddress, b.budget);
   update(id, { deposit: { txid, vout: null, amount: b.budget } });
   if (!b.ghost) void api.funded(b.n, player, txid);
 }

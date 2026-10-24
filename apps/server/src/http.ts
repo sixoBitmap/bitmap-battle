@@ -348,7 +348,8 @@ export function serve(cfg: Config, deps: Deps) {
     if (path === '/dev/send') {
       const amount = Number(b.amount);
       if (typeof b.address !== 'string' || !Number.isSafeInteger(amount) || amount <= 0) throw new HttpError(400, 'address and amount (sats) needed');
-      return send(res, 200, { txid: await dev.send(b.address, amount) });
+      const feeRate = Number(b.feeRate) > 0 ? Math.min(100, Number(b.feeRate)) : undefined;
+      return send(res, 200, { txid: await dev.send(b.address, amount, feeRate) });
     }
     if (path === '/dev/mine') return send(res, 200, { hashes: await dev.mine(Math.min(100, Math.max(1, Number(b.blocks) || 1))) });
     if (path === '/dev/faucet') return send(res, 200, { txid: await dev.faucet() });

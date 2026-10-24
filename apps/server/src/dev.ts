@@ -103,8 +103,8 @@ export class Dev {
   }
 
   // Like Xverse: the player pays only from the payment address, and the change goes back to it.
-  async send(address: string, amount: number): Promise<string> {
-    return this.spend('player', address, amount);
+  async send(address: string, amount: number, feeRate = 2): Promise<string> {
+    return this.spend('player', address, amount, feeRate);
   }
 
   // Play money for the player: a confirmed coin on the payment address, from the bank.
@@ -115,7 +115,7 @@ export class Dev {
   }
 
   // The player's coins and the bank's (everything else in the wallet: mined coins, the rival's change) never mix.
-  private async spend(from: 'player' | 'bank', address: string, amount: number): Promise<string> {
+  private async spend(from: 'player' | 'bank', address: string, amount: number, feeRate = 2): Promise<string> {
     const player = this.accounts.payment.address;
     const coins = (await this.wallet.call<Unspent[]>('listunspent', from === 'player' ? 0 : 1, 9_999_999))
       .filter((c) => c.spendable && (from === 'player' ? c.address === player : c.address !== player && c.address !== this.accounts.ordinals.address))
@@ -128,7 +128,7 @@ export class Dev {
       if (total >= amount + 20_000) break;
     }
     if (total < amount + 1_000) throw new Error(from === 'player' ? 'Insufficient balance' : 'The test bank is empty: mine a few blocks.');
-    const result = await this.wallet.call<{ txid: string }>('send', [{ [address]: amount / 1e8 }], null, 'unset', 2, {
+    const result = await this.wallet.call<{ txid: string }>('send', [{ [address]: amount / 1e8 }], null, 'unset', feeRate, {
       inputs,
       add_inputs: false,
       change_address: from === 'player' ? player : this.miner,
