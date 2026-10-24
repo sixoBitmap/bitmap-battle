@@ -83,7 +83,8 @@ export type BattleClaim = {
   vsize: number;
   rate: number | null;
 };
-export type GhostSent = { n: number; rung: number; txid: string; fee: number; vsize: number; rate: number; at: number };
+// try: the claim's try in the run; why: what made it climb above that try's rate (Can rise), if it did.
+export type GhostSent = { n: number; rung: number; txid: string; fee: number; vsize: number; rate: number; at: number; try?: number; why?: string };
 export type GhostRunView = {
   id: string;
   state: 'waiting' | 'chasing' | 'won' | 'lost' | 'refunded' | 'gone';
@@ -92,6 +93,8 @@ export type GhostRunView = {
   count: number;
   start: number;
   extra: number;
+  // Tries forwarded so far.
+  skip: number;
   deposit: { txid: string; vout: number; amount: number };
   sent: GhostSent[];
   refund: { txid: string; fee: number; rate: number; at: number } | null;
@@ -99,7 +102,12 @@ export type GhostRunView = {
   winner: string | null;
   block: number | null;
 };
-export type PrivateInfo = { pool: string | null; floor: number | null; recent: { n: number; block: number; pool: string | null; rate: number | null; won: boolean }[] };
+// A bitmap a ghost minted in a private pool's block (n: the newest number its claim won there), and its fee rate.
+export type PoolMint = { n: number; height: number; owner: string | null; txid: string; rate: number | null };
+// A private pool's newest block and whether a ghost minted in it, with its latest ghost mints (oldest first); height
+// and ghost are null until a block of the pool is seen.
+export type PoolStatus = { pool: string; height: number | null; ghost: boolean | null; wins: PoolMint[] };
+export type PrivateInfo = { pool: string | null; floor: number | null; pools: PoolStatus[] };
 export type Outspend = { unspent: boolean; spender: string | null; confirmations: number | null };
 export type BitmapInfo = { n: number; claimed: { inscription: string; height: number } | null | 'unknown'; scannedTo: number };
 
@@ -131,6 +139,7 @@ export const api = {
   ghostSeat: (player: string) => post<{ ok: boolean }>('/api/ghost/seat', { player }),
   ghostRelease: (player: string) => post<{ ok: boolean }>('/api/ghost/release', { player }).catch(() => null),
   ghostStart: (player: string, id: string, bundle: GhostBundle) => post<GhostRunView>('/api/ghost/start', { player, id, bundle }),
+  ghostForward: (player: string, id: string, bundle: GhostBundle) => post<GhostRunView>('/api/ghost/forward', { player, id, bundle }),
   ghostStop: (player: string, id: string) => post<GhostRunView>('/api/ghost/stop', { player, id }),
   ghostRun: (player: string, id: string) => get<GhostRunView>(`/api/ghost/run/${id}?player=${player}`),
 };

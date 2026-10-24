@@ -141,6 +141,16 @@ export class Watcher extends EventEmitter {
     return { hash, time, pool: this.poolHint?.(hash) ?? poolOf(coinbaseText(raw)), ...claimsInBlock(raw, height) };
   }
 
+  // A block read from the node again, its claims judged against the bitmaps known now.
+  async blockAt(height: number): Promise<BlockInfo> {
+    const b = await this.readBlock(height);
+    const claims = b.claims.map((c) => {
+      const holder = this.bitmaps.claimed(c.n);
+      return { ...c, valid: holder === undefined ? null : holder !== null && holder.inscription === c.inscription };
+    });
+    return { height, hash: b.hash, time: b.time, seenAt: b.time * 1000, pool: b.pool, claims: this.view(claims, false), sizes: b.sizes };
+  }
+
   private view(claims: Judged[], live: boolean): BlockClaimView[] {
     return claims.map((c) => ({
       ...c,
@@ -180,14 +190,7 @@ export class Watcher extends EventEmitter {
     }
 
     if (startup) {
-      for (let h = Math.max(0, height - RECENT_BLOCKS + 1); h < Math.min(from, height + 1); h++) {
-        const b = await this.readBlock(h);
-        const claims = b.claims.map((c) => {
-          const holder = this.bitmaps.claimed(c.n);
-          return { ...c, valid: holder === undefined ? null : holder !== null && holder.inscription === c.inscription };
-        });
-        this.remember({ height: h, hash: b.hash, time: b.time, seenAt: b.time * 1000, pool: b.pool, claims: this.view(claims, false), sizes: b.sizes });
-      }
+      for (let h = Math.max(0, height - RECENT_BLOCKS + 1); h < Math.min(from, height + 1); h++) this.remember(await this.blockAt(h));
     }
 
     const catchingUp = height - from > 2;

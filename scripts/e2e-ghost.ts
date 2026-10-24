@@ -1,14 +1,14 @@
 // End-to-end ghost runs on the regtest server (npm run regtest first), against its stand-in for a private pool: a run
-// that climbs block after block and wins in a MARA block, a run stopped with its refund, and runs against a private
-// rival that pays 3.10 sat/vB every block.
+// that climbs block after block and wins in a MARA block, a run stopped with its refund, runs forwarded to later
+// tries, and runs against a private rival that pays 3.10 sat/vB every block.
 // Usage: npx tsx scripts/e2e-ghost.ts [http://127.0.0.1:8788]
 import assert from 'node:assert/strict';
-import { commitTree, fromHex, type GhostPlan, ghostBundle, ghostDeposit, newSecret, toHex } from '@bitmap-battle/core';
+import { commitTree, type GhostPlan, ghostBundle, ghostDeposit, ghostRate, newSecret, toHex } from '@bitmap-battle/core';
 
 const base = process.argv[2] ?? 'http://127.0.0.1:8788';
 const player = `e2e-ghost-${Date.now().toString(36)}-0123456789`;
 
-type Run = { state: string; stopped: boolean; sent: { n: number; rate: number; fee: number; txid: string }[]; refund: { txid: string } | null; note: string; winner: string | null };
+type Run = { state: string; stopped: boolean; skip: number; sent: { n: number; rate: number; fee: number; txid: string }[]; refund: { txid: string } | null; note: string; winner: string | null };
 type State = { tip: { height: number }; results: { height: number; pool: string | null; claims: { n: number; txid: string; owner: string | null; ghost: boolean; valid: boolean | null }[] }[] };
 
 async function get<T>(path: string): Promise<T> {
@@ -62,11 +62,19 @@ async function startRun(start: number, extra: number, count: number) {
   const { txid } = await post<{ txid: string }>('/dev/send', { address: tree.address, amount });
   const tx = await until('the deposit', () => get<{ outputs: { n: number; value: number; script: string }[] }>(`/api/tx/${txid}`).catch(() => null));
   const out = tx.outputs.find((o) => o.script === toHex(tree.script))!;
-  const bundle = ghostBundle({ ...plan, secret, network: 'regtest', coin: { txid, vout: out.n, amount: out.value }, ordinals, payment, refundRates: [1, 2, 4, 8, 16] });
+  const coin = { txid, vout: out.n, amount: out.value };
+  const bundle = ghostBundle({ ...plan, secret, network: 'regtest', coin, ordinals, payment, refundRates: [1, 2, 4, 8, 16] });
   const id = `run-${Date.now().toString(36)}`;
   await post('/api/ghost/start', { player, id, bundle });
   const view = () => get<Run>(`/api/ghost/run/${id}?player=${player}`);
-  return { id, plan, view, claims: bundle.claims.length };
+  // Signs the claims from number n on again at the rates of try `to` onward, like the page's FORWARD.
+  const forward = (n: number, to: number, who = player) =>
+    post<Run>('/api/ghost/forward', {
+      player: who,
+      id,
+      bundle: ghostBundle({ ...plan, secret, network: 'regtest', coin, ordinals, payment, refundRates: [], skip: to - (n - plan.first + 1), from: n }),
+    });
+  return { id, plan, view, forward, claims: bundle.claims.length };
 }
 
 const sent = async (view: () => Promise<Run>, k: number) => until(`claim ${k} at the private pool`, async () => ((await view()).sent.length >= k ? view() : null));
@@ -111,6 +119,51 @@ console.log('run 2: stopped, the refund wins on a normal block');
   await block('normal');
   const v = await until('the refund to confirm', async () => ((await r.view()).state === 'refunded' ? r.view() : null));
   console.log(`  refunded after ${v.sent.length} claim: ${v.refund!.txid.slice(0, 10)}…`);
+}
+
+console.log('run 3: forwarded to later tries, then a MARA block');
+{
+  const r = await startRun(3.2, 1, 8);
+  await block('normal');
+  let v = await sent(r.view, 1);
+  const n = v.sent[0].n;
+  assert.equal(n, r.plan.first);
+  await r.forward(n, 4);
+  v = await sent(r.view, 2);
+  assert.equal(v.skip, 3);
+  assert.equal(v.sent[1].n, n, 'a forward replaces the claim for the same number');
+  assert.ok(Math.abs(v.sent[1].rate - ghostRate(3.2, 3, 0)) < 0.02, `try 4 pays ${v.sent[1].rate}`);
+  console.log(`  try 1 → 4 on ${n}: ${v.sent[0].rate} → ${v.sent[1].rate} sat/vB`);
+  await assert.rejects(r.forward(n, 3), /only goes forward/);
+  await assert.rejects(r.forward(n, 6, `${player}-x`), /no such ghost run/);
+  await block('normal');
+  v = await sent(r.view, 3);
+  assert.equal(v.sent[2].n, n + 1);
+  assert.ok(Math.abs(v.sent[2].rate - ghostRate(3.2, 4, 0)) < 0.02, `try 5 pays ${v.sent[2].rate}`);
+  console.log(`  the next block is try 5: ${v.sent[2].rate} sat/vB`);
+  await r.forward(n + 1, 8);
+  v = await until('the last try and the refund', async () => {
+    const x = await r.view();
+    return x.sent.length >= 4 && x.refund ? x : null;
+  });
+  assert.ok(Math.abs(v.sent[3].rate - ghostRate(3.2, 7, 0)) < 0.02, `try 8 pays ${v.sent[3].rate}`);
+  console.log(`  try 5 → 8, the last: ${v.sent[3].rate} sat/vB, and the refund races it`);
+  await block('mara');
+  v = await until('the win', async () => ((await r.view()).state === 'won' ? r.view() : null));
+  assert.equal(v.winner, `${v.sent.at(-1)!.txid}i0`);
+  console.log(`  WON ${n + 1}.bitmap at the rate of try 8, ${r.plan.count - 2} blocks before the run would have ended`);
+}
+
+console.log('run 4: forwarded to the last try, a normal block takes the refund');
+{
+  const r = await startRun(3.2, 0, 6);
+  await block('normal');
+  const n = (await sent(r.view, 1)).sent[0].n;
+  await r.forward(n, 6);
+  await until('the refund to go out', async () => (await r.view()).refund);
+  await block('normal');
+  const v = await until('the refund to confirm', async () => ((await r.view()).state === 'refunded' ? r.view() : null));
+  console.log(`  refunded after try 6 of 6, at the first number: ${v.sent.length} claims sent`);
 }
 
 // The rival funds each claim a block ahead, so it is on before the run starts; the run's first claim pays its start

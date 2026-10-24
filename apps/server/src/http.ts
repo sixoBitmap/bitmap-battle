@@ -6,7 +6,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import type { Bitmaps } from './bitmaps.ts';
 import type { Config } from './config.ts';
 import type { Dev } from './dev.ts';
-import { type Ghosts, isPrivatePool } from './ghosts.ts';
+import type { Ghosts } from './ghosts.ts';
 import type { GhostRuns } from './ghostrun.ts';
 import { log } from './log.ts';
 import type { Push } from './push.ts';
@@ -281,18 +281,9 @@ export function serve(cfg: Config, deps: Deps) {
       }
     }
     if (method === 'GET' && path === '/api/private') {
-      if (!deps.runs.enabled) return send(res, 200, { pool: null, floor: null, recent: [] });
+      if (!deps.runs.enabled) return send(res, 200, { pool: null, floor: null, pools: deps.ghosts.poolStatus });
       const floor = await deps.runs.floor().catch(() => null);
-      const recent: { n: number; block: number; pool: string | null; rate: number | null; won: boolean }[] = [];
-      for (const b of [...watcher.blocks].reverse()) {
-        if (!isPrivatePool(b.pool)) continue;
-        for (const c of b.claims) {
-          if (!c.unseen || recent.length >= 12) continue;
-          const { fee, vsize } = await paid(c.txid, b);
-          recent.push({ n: c.n, block: b.height, pool: b.pool, rate: fee === null ? null : Math.round((fee / vsize) * 100) / 100, won: c.valid === true });
-        }
-      }
-      return send(res, 200, { pool: deps.runs.poolName, floor, recent });
+      return send(res, 200, { pool: deps.runs.poolName, floor, pools: deps.ghosts.poolStatus });
     }
     if (method === 'GET' && (m = path.match(/^\/api\/ghost\/run\/([A-Za-z0-9_-]{4,64})$/))) {
       const player = new URL(req.url ?? '', 'http://x').searchParams.get('player');
@@ -314,6 +305,13 @@ export function serve(cfg: Config, deps: Deps) {
       if (path === '/api/ghost/start') {
         try {
           return send(res, 200, await deps.runs.start(b.player, b.id, b.bundle as GhostBundle));
+        } catch (e) {
+          throw new HttpError(400, (e as Error).message);
+        }
+      }
+      if (path === '/api/ghost/forward') {
+        try {
+          return send(res, 200, deps.runs.forward(b.player, b.id, b.bundle as GhostBundle));
         } catch (e) {
           throw new HttpError(400, (e as Error).message);
         }

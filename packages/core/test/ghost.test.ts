@@ -15,7 +15,10 @@ import {
   ghostCosts,
   ghostDeposit,
   ghostDepths,
+  ghostLast,
+  ghostRate,
   ghostRungs,
+  ghostTry,
   parseTx,
   replacementFee,
 } from '../src/index.ts';
@@ -122,4 +125,36 @@ test('the costs a player is shown are the fees the signed claims pay', () => {
   assert.equal(costs.most, at(last, ghostRungs(plan.extra) - 1).fee);
   assert.equal(Math.ceil(2 * costs.refundSize), b.refunds[0].fee);
   assert.ok(costs.first < costs.last && costs.last < costs.most && costs.most < costs.deposit);
+});
+
+test('a forward signs the rest of the run at the rates of later tries, and the run ends sooner', () => {
+  const coin = { txid: 'ee'.repeat(32), vout: 0, amount: ghostDeposit(plan, 'regtest', ordinals, payment) };
+  const make = (skip: number, from?: number) => ghostBundle({ ...plan, secret, network: 'regtest', coin, ordinals, payment, refundRates: [], skip, from });
+  const full = make(0);
+  const n = plan.first + 9;
+  assert.equal(ghostTry(full, n), 10);
+  // From try 10 to try 20, at the number chased now.
+  const ahead = make(20 - 10, n);
+  assert.equal(checkGhostBundle(ahead, 'regtest'), null);
+  assert.equal(ghostTry(ahead, n), 20);
+  assert.equal(ghostLast(ahead), plan.first + plan.count - 1 - 10);
+  assert.deepEqual(
+    [...new Set(ahead.claims.map((c) => c.n))],
+    Array.from({ length: ghostLast(ahead) - n + 1 }, (_, i) => n + i),
+  );
+  const now = full.claims.find((c) => c.n === n && c.rung === 0)!;
+  const forwarded = ahead.claims.find((c) => c.n === n && c.rung === 0)!;
+  assert.equal(forwarded.fee, Math.ceil(ghostRate(plan.start, 19, 0) * forwarded.vsize));
+  assert.equal(forwarded.vsize, now.vsize);
+  assert.ok(forwarded.fee >= replacementFee(now, forwarded.vsize, 0.1), 'it replaces the claim waiting');
+  // The last try still fits the deposit, rungs and all.
+  const end = make(plan.count - 10, n);
+  assert.equal(ghostLast(end), n);
+  assert.equal(end.claims.length, ghostRungs(plan.extra));
+  assert.equal(checkGhostBundle(end, 'regtest'), null);
+  // A claim from before the forward pays less than its try now asks, and a number past the new end is refused.
+  assert.match(checkGhostBundle({ ...ahead, claims: [now] }, 'regtest')!, /less than its try/);
+  const late = full.claims.find((c) => c.n === ghostLast(ahead) + 1)!;
+  assert.match(checkGhostBundle({ ...ahead, claims: [late] }, 'regtest')!, /outside the run/);
+  assert.match(checkGhostBundle({ ...ahead, skip: plan.count }, 'regtest')!, /no such try/);
 });

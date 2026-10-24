@@ -102,6 +102,12 @@ export const ghostRate = (start: number, i: number, rung: number) => round2(star
 
 export const ghostRungs = (extra: number) => Math.max(1, Math.floor(extra / GHOST_RUNG + 1e-9) + 1);
 
+// The i-th number of a run is its try i+1, and pays that try's rate. A player can forward the run to a later try:
+// every number from then on pays the rate of a try that many further on, and the run ends that many blocks sooner.
+export const ghostTry = (b: GhostPlan & { skip?: number }, n: number) => n - b.first + 1 + (b.skip ?? 0);
+
+export const ghostLast = (b: GhostPlan & { skip?: number }) => b.first + b.count - 1 - (b.skip ?? 0);
+
 // The least a transaction must pay to replace `prev` in a mempool: the incremental relay fee for its own size on
 // top, at no lower fee rate.
 export function replacementFee(prev: { fee: number; vsize: number } | null, vsize: number, incremental: number): number {
@@ -116,6 +122,8 @@ export type GhostRefund = { rate: number; fee: number; vsize: number; txid: stri
 export type GhostPlan = { first: number; count: number; start: number; extra: number };
 
 export type GhostBundle = GhostPlan & {
+  // Tries forwarded so far (none when absent).
+  skip?: number;
   coin: Coin;
   ordinals: string;
   payment: string;
@@ -156,7 +164,8 @@ export function ghostCosts(plan: GhostPlan, network: Network, ordinals: string, 
 }
 
 // Every claim and refund of a run, signed once with the run's key: the browser hands these to the server, which
-// sends the right one each block and can neither change them nor pay anyone else.
+// sends the right one each block and can neither change them nor pay anyone else. A forward signs the claims again
+// from the number `from` on, at the rates of the tries forwarded to.
 export function ghostBundle(p: GhostPlan & {
   secret: Uint8Array;
   network: Network;
@@ -164,16 +173,18 @@ export function ghostBundle(p: GhostPlan & {
   ordinals: string;
   payment: string;
   refundRates: number[];
+  skip?: number;
+  from?: number;
 }): GhostBundle {
   const commit = commitTree(p.secret, p.first, p.count, p.network);
   const rungs = ghostRungs(p.extra);
+  const skip = p.skip ?? 0;
   const claims: GhostClaim[] = [];
-  for (let i = 0; i < p.count; i++) {
-    const n = p.first + i;
+  for (let n = Math.max(p.first, p.from ?? p.first); n <= ghostLast(p); n++) {
     const params: RevealParams = { secret: p.secret, n, coin: p.coin, postageAddress: p.ordinals, changeAddress: p.payment, network: p.network, commit: commit.leaf(n) };
     const vsize = buildReveal(params, 0, false).vsize;
     for (let r = 0; r < rungs; r++) {
-      const fee = Math.ceil(ghostRate(p.start, i, r) * vsize);
+      const fee = Math.ceil(ghostRate(p.start, ghostTry(p, n) - 1, r) * vsize);
       if (p.coin.amount - POSTAGE - fee < 0) break;
       const built = buildReveal(params, fee);
       claims.push({ n, rung: r, rate: round2(built.fee / built.vsize), fee: built.fee, vsize: built.vsize, txid: built.txid, hex: built.hex });
@@ -188,13 +199,16 @@ export function ghostBundle(p: GhostPlan & {
     const built = buildRefund(back, fee);
     refunds.push({ rate: round2(built.fee / built.vsize), fee: built.fee, vsize: built.vsize, txid: built.txid, hex: built.hex });
   }
-  return { first: p.first, count: p.count, start: p.start, extra: p.extra, coin: p.coin, ordinals: p.ordinals, payment: p.payment, claims, refunds };
+  return { first: p.first, count: p.count, start: p.start, extra: p.extra, skip, coin: p.coin, ordinals: p.ordinals, payment: p.payment, claims, refunds };
 }
 
 // What a server checks before it agrees to send a run's transactions: each spends only the deposit, pays only the
-// player's own addresses, and each claim is the claim of its number, not mineable before that block.
+// player's own addresses, and each claim is the claim of its number, not mineable before that block, paying at least
+// the rate of its try.
 export function checkGhostBundle(b: GhostBundle, network: Network): string | null {
   ghostDepths(b.count);
+  const skip = b.skip ?? 0;
+  if (!Number.isInteger(skip) || skip < 0 || skip >= b.count) return 'no such try';
   if (!b.claims.length) return 'no claims';
   const ordinals = outputScript(b.ordinals, network);
   const payment = outputScript(b.payment, network);
@@ -203,13 +217,14 @@ export function checkGhostBundle(b: GhostBundle, network: Network): string | nul
     const tx = parseTx(fromHex(c.hex));
     if (tx.txid() !== c.txid) return `claim ${c.txid} does not match its hex`;
     if (!spendsDeposit(tx.inputs)) return `claim for ${c.n} spends something else`;
-    if (c.n < b.first || c.n >= b.first + b.count) return `claim for ${c.n} is outside the run`;
+    if (c.n < b.first || c.n > ghostLast(b)) return `claim for ${c.n} is outside the run`;
     if (tx.locktime !== c.n - 1) return `claim for ${c.n} could be mined before its block`;
     const [postage, change, ...rest] = tx.outputs;
     if (!postage || !equal(postage.script, ordinals) || postage.value !== POSTAGE) return `claim for ${c.n} does not send the bitmap to the player`;
     if (rest.length || (change && !equal(change.script, payment))) return `claim for ${c.n} pays someone else`;
     const fee = b.coin.amount - tx.outputs.reduce((s, o) => s + o.value, 0);
     if (fee !== c.fee || Math.ceil(tx.weight / 4) !== c.vsize) return `claim for ${c.n} misstates its fee or size`;
+    if (!Number.isInteger(c.rung) || c.rung < 0 || fee < Math.ceil(ghostRate(b.start, ghostTry(b, c.n) - 1, c.rung) * c.vsize)) return `claim for ${c.n} pays less than its try`;
     const claims = claimsInTx(tx);
     if (claims.length !== 1 || claims[0].n !== c.n || claims[0].vin !== 0) return `claim for ${c.n} inscribes something else`;
   }

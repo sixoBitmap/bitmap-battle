@@ -360,6 +360,25 @@ async function sendBundle(b: Battle): Promise<void> {
   });
 }
 
+// Forwards the run to try `to` at number `n`, the one chased now: the claims from there on are signed again at the
+// rates of the later tries, and the run ends that many blocks sooner.
+export async function forwardGhost(id: string, n: number, to: number): Promise<GhostRunView> {
+  const b = find(id);
+  if (!b.ghost) throw new Error('This is not a ghost run.');
+  const bundle = ghostBundle({
+    ...b.ghost,
+    skip: to - (n - b.ghost.first + 1),
+    from: n,
+    secret: fromHex(b.secret),
+    network: b.network,
+    coin: coinOf(b),
+    ordinals: b.ordinals,
+    payment: b.payment,
+    refundRates: [],
+  });
+  return api.ghostForward(player, b.id, bundle);
+}
+
 export const stopGhost = (id: string) => api.ghostStop(player, id);
 
 // The server's view of the run, copied into the battle: the claims it sent, the refund, and how it ended.

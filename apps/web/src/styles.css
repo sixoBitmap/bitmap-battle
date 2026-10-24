@@ -1407,6 +1407,156 @@ a.fame span {
   color: var(--crimson);
 }
 
+.pool-board {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--parch-line);
+  background: rgba(255, 250, 230, 0.55);
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.pool-board > div {
+  display: contents;
+}
+
+.pool-board b {
+  color: var(--crimson);
+}
+
+.pool-mint {
+  white-space: nowrap;
+}
+
+.pool-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.pool-floor {
+  grid-column: 1 / -1;
+  font-size: 11px;
+}
+
+.state-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--parch-3);
+}
+
+.state-dot.green {
+  background: var(--green);
+  box-shadow: 0 0 5px var(--green-hi);
+}
+
+.state-dot.red {
+  background: var(--crimson);
+  box-shadow: 0 0 5px var(--crimson-hi);
+}
+
+.trend {
+  margin-left: 4px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.trend.up {
+  color: var(--crimson);
+}
+
+.trend.down {
+  color: var(--green);
+}
+
+.trend.flat {
+  color: var(--ink-2);
+}
+
+.ghost-bars {
+  display: grid;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--ink-2);
+}
+
+.ghost-bars b {
+  color: var(--crimson);
+}
+
+.ghost-line {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.try-bar {
+  position: relative;
+  display: flex;
+  gap: 1px;
+  height: 10px;
+  padding: 1px;
+  border: 1px solid var(--parch-line);
+  background: rgba(255, 250, 230, 0.6);
+}
+
+.try-bar > i {
+  flex: 1;
+  min-width: 0;
+}
+
+.try-bar > i.on {
+  background: var(--gold);
+}
+
+.try-bar > i.now {
+  background: var(--crimson);
+}
+
+.try-bar > i.skip {
+  background: repeating-linear-gradient(45deg, var(--gold) 0 2px, transparent 2px 4px);
+}
+
+.restart-mark {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  border-left: 2px dashed var(--green);
+}
+
+.try-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+}
+
+.restart-line.go {
+  color: var(--green);
+  font-weight: 700;
+}
+
+.restart-line em {
+  color: var(--crimson);
+  font-style: normal;
+}
+
+.rise-bar {
+  height: 5px;
+  margin-top: 3px;
+  border: 1px solid var(--parch-line);
+  background: rgba(255, 250, 230, 0.6);
+}
+
+.rise-bar > i {
+  display: block;
+  height: 100%;
+  background: var(--crimson);
+}
+
 .ghost-picks {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -1468,6 +1618,50 @@ input.pick {
 }
 
 .ghost-costs b {
+  color: var(--crimson);
+}
+
+.ghost-forward {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--parch-line);
+  background: rgba(255, 250, 230, 0.55);
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.ghost-forward > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ghost-forward .pick {
+  flex: none;
+  white-space: nowrap;
+}
+
+.ghost-forward > div > span:first-child {
+  flex: 1;
+}
+
+.ghost-forward > div:first-child > span {
+  flex: none;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.ghost-forward input[type='range'] {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--crimson);
+}
+
+.ghost-forward b {
   color: var(--crimson);
 }
 

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { checkGhostBundle, type GhostBundle, type GhostClaim, type GhostRefund, type Network, replacementFee } from '@bitmap-battle/core';
+import { checkGhostBundle, type GhostBundle, type GhostClaim, ghostLast, type GhostRefund, ghostTry, type Network, replacementFee } from '@bitmap-battle/core';
 import type { Bitmaps } from './bitmaps.ts';
 import { log } from './log.ts';
 import type { PrivatePool } from './private.ts';
@@ -12,7 +12,8 @@ import type { Watcher } from './watcher.ts';
 // last one because they spend the same deposit; the server picks among the signed fee rungs and nothing else. One
 // run at a time, so the players of this server never bid against each other unseen.
 
-type Sent = { n: number; rung: number; txid: string; fee: number; vsize: number; rate: number; at: number };
+// try: the claim's try in the run; why: what made it climb above that try's rate (Can rise), if it did.
+type Sent = { n: number; rung: number; txid: string; fee: number; vsize: number; rate: number; at: number; try?: number; why?: string };
 
 export type RunState = 'waiting' | 'chasing' | 'won' | 'lost' | 'refunded' | 'gone';
 
@@ -38,6 +39,7 @@ export type RunView = {
   count: number;
   start: number;
   extra: number;
+  skip: number;
   deposit: { txid: string; vout: number; amount: number };
   sent: Sent[];
   refund: Run['refund'];
@@ -145,6 +147,45 @@ export class GhostRuns {
     return this.view(run);
   }
 
+  // Forwards a run to a later try: the player's browser signed the claims from the number chased now on at the rates
+  // of the tries forwarded to; they replace the claims the server held, and the run ends that many blocks sooner.
+  forward(player: string, id: string, bundle: GhostBundle): RunView {
+    const run = this.runs.find((r) => r.id === id && r.player === player);
+    if (!run) throw new Error('no such ghost run');
+    if (run.state !== 'chasing' || run.stopped) throw new Error('this run is not chasing');
+    const b = run.bundle;
+    const same =
+      bundle.first === b.first &&
+      bundle.count === b.count &&
+      bundle.start === b.start &&
+      bundle.extra === b.extra &&
+      bundle.ordinals === b.ordinals &&
+      bundle.payment === b.payment &&
+      bundle.coin?.txid === b.coin.txid &&
+      bundle.coin.vout === b.coin.vout &&
+      bundle.coin.amount === b.coin.amount;
+    if (!same) throw new Error('these claims are for another run');
+    if (!((bundle.skip ?? 0) > (b.skip ?? 0))) throw new Error('a run only goes forward');
+    const problem = checkGhostBundle({ ...bundle, refunds: [] }, this.d.network);
+    if (problem) throw new Error(problem);
+    const n = Math.max(b.first, this.d.watcher.tip.height + 1, this.height + 1);
+    const last = ghostLast(bundle);
+    if (n > last) throw new Error('that try is already past');
+    for (let k = n; k <= last; k++) {
+      if (!bundle.claims.some((c) => c.n === k && c.rung === 0)) throw new Error('a new block came: pick the try again');
+    }
+    const prev = run.sent.at(-1);
+    const next = bundle.claims.find((c) => c.n === n && c.rung === 0)!;
+    if (prev?.n === n && next.fee < replacementFee(prev, next.vsize, Math.max(0.1, this.d.watcher.rates.incremental))) {
+      throw new Error(`the claim waiting already pays ${prev.rate} sat/vB: pick a later try`);
+    }
+    run.bundle = { ...b, skip: bundle.skip, claims: [...b.claims.filter((c) => c.n < n), ...bundle.claims.filter((c) => c.n >= n)] };
+    this.save();
+    log(`👻 ghost run ${tagOf(player)} forwarded to try ${ghostTry(bundle, n)} of ${b.count} at ${next.rate} sat/vB`);
+    void this.step();
+    return this.view(run);
+  }
+
   get(player: string, id: string): RunView | null {
     const run = this.runs.find((r) => r.id === id && r.player === player);
     return run ? this.view(run) : null;
@@ -152,7 +193,8 @@ export class GhostRuns {
 
   private view(r: Run): RunView {
     const { first, count, start, extra, coin } = r.bundle;
-    return { id: r.id, state: r.state, stopped: r.stopped, first, count, start, extra, deposit: coin, sent: r.sent, refund: r.refund, note: r.note, winner: r.winner, block: r.block };
+    const skip = r.bundle.skip ?? 0;
+    return { id: r.id, state: r.state, stopped: r.stopped, first, count, start, extra, skip, deposit: coin, sent: r.sent, refund: r.refund, note: r.note, winner: r.winner, block: r.block };
   }
 
   // Runs on every new tip and every block read; overlapping calls fold into one more pass.
@@ -197,7 +239,7 @@ export class GhostRuns {
 
     const tip = Math.max(watcher.tip.height, this.height);
     const n = tip + 1;
-    const last = b.first + b.count - 1;
+    const last = ghostLast(b);
     if (run.stopped || n > last) return this.takeBack(run);
     if (n < b.first) return;
 
@@ -222,9 +264,10 @@ export class GhostRuns {
       top = Math.max(top, p.effFee / p.effVsize);
     }
     const incremental = Math.max(0.1, watcher.rates.incremental);
-    const want = Math.max(floor, top + 0.01);
-    if (prev?.n === n && prev.rate >= want) return;
     const rungs = b.claims.filter((c) => c.n === n).sort((x, y) => x.rung - y.rung);
+    // At least the rate of this number's try, which a forward raises.
+    const want = Math.max(floor, top + 0.01, rungs[0]?.rate ?? 0);
+    if (prev?.n === n && prev.rate >= want) return;
     const usable = rungs.filter((c) => c.rate >= floor && c.fee >= replacementFee(prev, c.vsize, incremental));
     const pick = usable.find((c) => c.rate >= want) ?? usable.at(-1);
     if (!pick) {
@@ -232,7 +275,16 @@ export class GhostRuns {
       return this.takeBack(run);
     }
     if (prev?.txid === pick.txid) return;
-    if (!(await this.send(run, pick, usable))) return this.later();
+    const base = rungs[0]?.rate ?? 0;
+    const why =
+      pick.rung === 0
+        ? undefined
+        : floor > base
+          ? `${this.d.pool!.name} floor rose to ${floor} sat/vB`
+          : top + 0.01 > base
+            ? `a public claim pays ${top.toFixed(2)} sat/vB`
+            : 'kept above the claim it replaces';
+    if (!(await this.send(run, pick, usable, why))) return this.later();
     if (n === last) await this.takeBack(run);
   }
 
@@ -248,11 +300,12 @@ export class GhostRuns {
 
   // Sends a claim to the private pool. When the pool wants a higher fee than expected (its replacement step may be
   // larger than ours), it climbs the signed rungs until one is taken.
-  private async send(run: Run, pick: GhostClaim, usable: GhostClaim[]): Promise<boolean> {
+  private async send(run: Run, pick: GhostClaim, usable: GhostClaim[], why?: string): Promise<boolean> {
     for (const c of usable.filter((x) => x.rung >= pick.rung)) {
       try {
         await this.d.pool!.submit(c.hex);
-        run.sent.push({ n: c.n, rung: c.rung, txid: c.txid, fee: c.fee, vsize: c.vsize, rate: c.rate, at: Date.now() });
+        const raised = c.rung > pick.rung ? `${this.d.pool!.name} asked for a higher fee` : why;
+        run.sent.push({ n: c.n, rung: c.rung, txid: c.txid, fee: c.fee, vsize: c.vsize, rate: c.rate, at: Date.now(), try: ghostTry(run.bundle, c.n), why: raised });
         run.note = '';
         this.save();
         log(`👻 claim for ${c.n.toLocaleString()}.bitmap waits at ${this.d.pool!.name}: ${c.rate} sat/vB, ${c.fee} sats`);
