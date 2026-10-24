@@ -224,9 +224,10 @@ export class GhostRuns {
     if (n === last) await this.takeBack(run);
   }
 
-  // Sends a claim to the private pool; when it asks for a higher fee than expected, tries the next rung once.
+  // Sends a claim to the private pool. When the pool wants a higher fee than expected (its replacement step may be
+  // larger than ours), it climbs the signed rungs until one is taken.
   private async send(run: Run, pick: GhostClaim, usable: GhostClaim[]): Promise<boolean> {
-    for (const c of [pick, usable.find((x) => x.rung > pick.rung)].filter(Boolean) as GhostClaim[]) {
+    for (const c of usable.filter((x) => x.rung >= pick.rung)) {
       try {
         await this.d.pool!.submit(c.hex);
         run.sent.push({ n: c.n, rung: c.rung, txid: c.txid, fee: c.fee, vsize: c.vsize, rate: c.rate, at: Date.now() });

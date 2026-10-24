@@ -136,6 +136,25 @@ export function ghostDeposit(plan: GhostPlan, network: Network, ordinals: string
   return POSTAGE + Math.ceil(top * vsize) + dustLimit(outputScript(payment, network));
 }
 
+// What a run costs, to the sat, for these addresses. A win pays the fee of one claim: `first` if the first number
+// wins, `last` if the last one does, `most` when every rise was used; no win pays one refund of `refundSize` vB.
+export type GhostCosts = { deposit: number; first: number; last: number; most: number; refundSize: number };
+
+export function ghostCosts(plan: GhostPlan, network: Network, ordinals: string, payment: string): GhostCosts {
+  const commit = commitTree(SIZER, plan.first, plan.count, network);
+  const coin = { txid: '00'.repeat(32), vout: 0, amount: 10_000_000 };
+  const size = (n: number) =>
+    buildReveal({ secret: SIZER, n, coin, postageAddress: ordinals, changeAddress: payment, network, commit: commit.leaf(n) }, 0, false).vsize;
+  const last = plan.first + plan.count - 1;
+  return {
+    deposit: ghostDeposit(plan, network, ordinals, payment),
+    first: Math.ceil(ghostRate(plan.start, 0, 0) * size(plan.first)),
+    last: Math.ceil(ghostRate(plan.start, plan.count - 1, 0) * size(last)),
+    most: Math.ceil(ghostRate(plan.start, plan.count - 1, ghostRungs(plan.extra) - 1) * size(last)),
+    refundSize: buildRefund({ secret: SIZER, n: plan.first, coin, toAddress: payment, network, commit }, 0, false).vsize,
+  };
+}
+
 // Every claim and refund of a run, signed once with the run's key: the browser hands these to the server, which
 // sends the right one each block and can neither change them nor pay anyone else.
 export function ghostBundle(p: GhostPlan & {

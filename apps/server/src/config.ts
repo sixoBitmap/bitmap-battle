@@ -16,7 +16,7 @@ export type Config = {
   vapidSubject: string;
   tipAddress: string | null;
   tipAmounts: number[];
-  // Where ghost runs send their claims: 'dev' for the regtest stand-in, or null for no ghost runs.
+  // Where ghost runs send their claims: a Slipstream API, 'dev' for the regtest stand-in, or null for no ghost runs.
   slipstream: string | null;
 };
 
@@ -47,9 +47,10 @@ function cookieCandidates(network: Network): string[] {
   return dirs.map((d) => join(d, sub, '.cookie'));
 }
 
-// Ghost runs work on regtest only for now, against the local stand-in for a private pool.
+// Ghost runs send claims to MARA Slipstream on mainnet and to the local stand-in on regtest; --slipstream off turns them off.
 function slipstreamFor(network: Network, option: string | undefined): string | null {
-  return network === 'regtest' && option !== 'off' ? 'dev' : null;
+  if (option === 'off') return null;
+  return network === 'mainnet' ? 'https://slipstream.mara.com/api' : network === 'regtest' ? 'dev' : null;
 }
 
 export function loadConfig(argv = process.argv.slice(2)): Config {

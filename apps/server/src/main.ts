@@ -8,6 +8,7 @@ import { GhostRuns } from './ghostrun.ts';
 import { Ghosts } from './ghosts.ts';
 import { serve } from './http.ts';
 import { log } from './log.ts';
+import { slipstream } from './private.ts';
 import { announcePublicLink } from './public-link.ts';
 import { Push } from './push.ts';
 import { Rpc } from './rpc.ts';
@@ -46,7 +47,7 @@ if (cfg.tipAddress) {
 }
 
 if (dev) watcher.poolHint = (hash) => dev.poolOf(hash);
-const pool = cfg.slipstream === 'dev' ? (dev?.pool ?? null) : null;
+const pool = cfg.slipstream === 'dev' ? (dev?.pool ?? null) : cfg.slipstream ? slipstream(cfg.slipstream) : null;
 const runs = new GhostRuns(join(cfg.dataDir, 'ghost-runs.json'), { rpc, watcher, bitmaps, pool, network: cfg.network });
 watcher.on('tip', (t: { height: number }) => void runs.step(t.height));
 

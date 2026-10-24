@@ -12,6 +12,7 @@ import {
   fromHex,
   GHOST_RUNG,
   ghostBundle,
+  ghostCosts,
   ghostDeposit,
   ghostDepths,
   ghostRungs,
@@ -107,4 +108,18 @@ test('a server only takes bundles that pay the player and claim the right number
   assert.match(checkGhostBundle(drained, 'regtest')!, /pays someone else/);
   const elsewhere = { ...good, coin: { ...coin, vout: 3 } };
   assert.match(checkGhostBundle(elsewhere, 'regtest')!, /spends something else/);
+});
+
+test('the costs a player is shown are the fees the signed claims pay', () => {
+  const costs = ghostCosts(plan, 'regtest', ordinals, payment);
+  const coin = { txid: 'dd'.repeat(32), vout: 0, amount: costs.deposit };
+  const b = ghostBundle({ ...plan, secret, network: 'regtest', coin, ordinals, payment, refundRates: [2] });
+  const at = (n: number, rung: number) => b.claims.find((c) => c.n === n && c.rung === rung)!;
+  const last = plan.first + plan.count - 1;
+  assert.equal(costs.deposit, ghostDeposit(plan, 'regtest', ordinals, payment));
+  assert.equal(costs.first, at(plan.first, 0).fee);
+  assert.equal(costs.last, at(last, 0).fee);
+  assert.equal(costs.most, at(last, ghostRungs(plan.extra) - 1).fee);
+  assert.equal(Math.ceil(2 * costs.refundSize), b.refunds[0].fee);
+  assert.ok(costs.first < costs.last && costs.last < costs.most && costs.most < costs.deposit);
 });

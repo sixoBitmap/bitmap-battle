@@ -1,6 +1,7 @@
+import { commitFor, fromHex, ghostCosts } from '@bitmap-battle/core';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { api, type GhostRunView, type PrivateInfo } from '../lib/api.ts';
-import { type Battle, battles, fund, ghostBudget, ghostPlan, joinGhost, locateDeposit, remove, startGhost, stopGhost, syncGhost } from '../lib/battles.ts';
+import { type Battle, battles, fund, GHOST_REFUNDS, ghostPlan, joinGhost, locateDeposit, remove, startGhost, stopGhost, syncGhost } from '../lib/battles.ts';
 import { num, rate, sats } from '../lib/format.ts';
 import { planBudgets } from '../lib/funds.ts';
 import { useCoins } from '../lib/hooks.ts';
@@ -21,6 +22,12 @@ const LENGTHS = [12, 24, 48];
 const PRIVATE_SHARE = 0.05;
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
+
+// Addresses like a wallet's, to price a run before one is connected: Taproot for the bitmap, Native SegWit to pay.
+const sample = (network: 'mainnet' | 'regtest') => ({
+  ordinals: commitFor(fromHex('02'.repeat(32)), 1, network).address,
+  payment: network === 'mainnet' ? 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4' : 'bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080',
+});
 
 // A ghost run: the newest bitmap chased block after block through a private pool, from one deposit.
 export function Ghost() {
@@ -67,9 +74,14 @@ function GhostSetup() {
   const ghosts = (info?.recent ?? []).map((r) => r.rate).filter((r): r is number => r !== null);
   const topGhost = ghosts.length ? Math.max(...ghosts) : null;
   const plan = ghostPlan(state.tip.height, startRate, extra, count);
-  const deposit = w && Number.isFinite(startRate) && startRate > 0 ? ghostBudget(plan, w, config) : null;
+  const net = config.network === 'mainnet' ? 'mainnet' : 'regtest';
+  const to = w ? { ordinals: w.ordinals.address, payment: w.payment.address } : sample(net);
+  const costs = Number.isFinite(startRate) && startRate > 0 ? ghostCosts(plan, config.network, to.ordinals, to.payment) : null;
+  const deposit = costs?.deposit ?? null;
+  const refundRate = GHOST_REFUNDS.find((r) => r >= Math.max(state.rates.nextBlock, state.rates.minRelay) + 0.1) ?? GHOST_REFUNDS.at(-1)!;
+  const refund = costs ? Math.ceil(refundRate * costs.refundSize) : null;
+  const about = w ? '' : '≈ ';
   const funds = w && coins && coins !== 'error' ? planBudgets(w, coins, state.rates, config.postage) : null;
-  const firstFee = Math.ceil(startRate * (168 + 8 * Math.ceil(Math.log2(count))));
   const problem = !(startRate > 0)
     ? 'Pick a start fee'
     : floor !== null && startRate < floor
@@ -147,10 +159,39 @@ function GhostSetup() {
           ))}
         </div>
       </div>
-      <p className="ghost-sum">
-        Deposit <b>{deposit === null ? '…' : sats(deposit)}</b>, the change comes back · first claim ≈ {sats(firstFee)}, +0.12 sat/vB a block · up to{' '}
-        <b>{pct(1 - (1 - PRIVATE_SHARE) ** count)}</b> chance of a private block in {count}
-      </p>
+      {costs && refund !== null && (
+        <dl className="ghost-costs">
+          <dt>Deposit</dt>
+          <dd>
+            <b>
+              {about}
+              {sats(costs.deposit)}
+            </b>{' '}
+            what you don't pay comes back
+          </dd>
+          <dt>If you win</dt>
+          <dd>
+            you pay{' '}
+            <b>
+              {about}
+              {num(costs.first)}–{sats(costs.last)}
+            </b>{' '}
+            · max {sats(costs.most)}
+          </dd>
+          <dt>If not</dt>
+          <dd>
+            you pay{' '}
+            <b>
+              ≈ {sats(refund)}
+            </b>{' '}
+            to get it back
+          </dd>
+          <dt>Chance</dt>
+          <dd>
+            up to <b>{pct(1 - (1 - PRIVATE_SHARE) ** count)}</b> in {count} blocks
+          </dd>
+        </dl>
+      )}
       <button className="big go" onClick={begin} disabled={busy || connecting || (w !== null && problem !== null)}>
         {busy ? 'OPENING WALLET…' : !w ? 'CONNECT WALLET' : '👻 START THE GHOST RUN'}
         <small>{w && problem ? problem : `numbers ${num(plan.first)}–${num(plan.first + count - 1)}`}</small>

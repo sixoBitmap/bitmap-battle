@@ -49,7 +49,7 @@ already spends (`max 174k` sat/vB; `all in` when nothing is left). The app tells
   its own node and keeps them in `data/<network>/ghosts.json`.
 - 👤 **Minter**: everyone else, including Bitmap Battle players.
 
-**👻 Ghost mint** (regtest for now). Some minters send their claims straight to a mining pool's private mempool,
+**👻 Ghost mint.** Some minters send their claims straight to a mining pool's private mempool,
 where nobody can see or outbid them before the block. A ghost run does the same:
 
 1. Pick a start fee, how far it may rise, and how many blocks to chase. The deposit is computed for you.
@@ -62,6 +62,10 @@ where nobody can see or outbid them before the block. A ghost run does the same:
    that finally gets mined pays a fee. You can close the page.
 5. It ends when a claim wins, when you stop, or when the chase is over: then your deposit comes back by a public
    refund.
+
+On mainnet the private pool is MARA Slipstream (free, no account; MARA mines about one block in twenty). Before you
+start, the app shows the exact costs: the deposit, what a win pays (the fee of one claim), and what the refund costs
+if nothing wins. Start with `--slipstream off` to turn ghost runs off on your server.
 
 On regtest the server holds a stand-in private pool, and the 🧪 test panel can mine a "MARA block" and run a
 private rival. `scripts/e2e-ghost.ts` plays whole runs against it.
